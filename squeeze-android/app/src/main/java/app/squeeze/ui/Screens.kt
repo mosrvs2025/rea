@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Compress
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -103,22 +105,34 @@ fun SqueezeRoot(vm: AppViewModel, onPick: () -> Unit, onStart: () -> Unit) {
     val entries by vm.entries.collectAsStateWithLifecycle()
     val probing by vm.isProbing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val library by vm.library.collectAsStateWithLifecycle()
+    val tab by vm.tab.collectAsStateWithLifecycle()
+    val detailId by vm.detailId.collectAsStateWithLifecycle()
+    val detail = library.firstOrNull { it.id == detailId }
+    val nav: @Composable () -> Unit = { MainNav(tab, library.size, onTab = { vm.tab.value = it }) }
 
     when {
-        queue.jobs.isNotEmpty() -> RunScreen(queue, onCancel = vm::cancel, onDone = vm::dismissResults)
+        detail != null -> DetailScreen(
+            entry = detail, beforeFile = vm.frameFile(detail.id, before = true), afterFile = vm.frameFile(detail.id, before = false),
+            onBack = vm::closeDetail, onRemove = { deleteFile -> vm.removeFromLibrary(detail.id, deleteFile) },
+        )
+        queue.jobs.isNotEmpty() -> RunScreen(queue, onCancel = vm::cancel, onDone = vm::dismissResults, onOpen = vm::openDetail)
         entries.isNotEmpty() || probing -> ConfigureScreen(
             entries = entries, probing = probing, settings = settings, hevc = vm.capabilities.hevc, av1 = vm.capabilities.av1,
             onChange = vm::update, onAdd = onPick, onRemove = vm::remove, onBack = vm::clear, onStart = onStart,
         )
-        else -> HomeScreen(onPick)
+        tab == Tab.Library -> LibraryScreen(
+            entries = library, frameFile = { vm.frameFile(it, before = false) }, onOpen = vm::openDetail, onRefresh = vm::refreshLibrary, bottomBar = nav,
+        )
+        else -> HomeScreen(onPick, nav)
     }
 }
 
 // ───────────────────────────── Home ─────────────────────────────
 
 @Composable
-private fun HomeScreen(onPick: () -> Unit) {
-    Scaffold { pad ->
+private fun HomeScreen(onPick: () -> Unit, bottomBar: @Composable () -> Unit) {
+    Scaffold(bottomBar = bottomBar) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).padding(horizontal = 28.dp),
             verticalArrangement = Arrangement.Center,
@@ -128,7 +142,7 @@ private fun HomeScreen(onPick: () -> Unit) {
                 Modifier.size(104.dp).clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(Icons.Rounded.Compress, null, Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(Modifier.height(28.dp))
             Text("Squeeze", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -403,7 +417,7 @@ private fun planSummary(p: Plan) = buildString {
 // ───────────────────────────── Run ──────────────────────────────
 
 @Composable
-private fun RunScreen(queue: QueueState, onCancel: () -> Unit, onDone: () -> Unit) {
+private fun RunScreen(queue: QueueState, onCancel: () -> Unit, onDone: () -> Unit, onOpen: (String) -> Unit) {
     val context = LocalContext.current
     BackHandler(enabled = !queue.active, onBack = onDone)
     val total = queue.jobs.size
@@ -457,14 +471,18 @@ private fun RunScreen(queue: QueueState, onCancel: () -> Unit, onDone: () -> Uni
                     }
                 }
             }
-            items(queue.jobs, key = { it.id }) { ResultRow(it, context) }
+            items(queue.jobs, key = { it.id }) { ResultRow(it, context, onOpen) }
         }
     }
 }
 
 @Composable
-private fun ResultRow(job: Item, context: android.content.Context) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun ResultRow(job: Item, context: android.content.Context, onOpen: (String) -> Unit) {
+    val libraryId = (job.status as? Status.Done)?.libraryId
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).then(if (libraryId != null) Modifier.clickable { onOpen(libraryId) } else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Thumb(job.uri, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -473,12 +491,15 @@ private fun ResultRow(job: Item, context: android.content.Context) {
                 Status.Queued -> Sub("Waiting")
                 is Status.Running -> {
                     LinearProgressIndicator(progress = { s.progress }, Modifier.fillMaxWidth().padding(top = 6.dp).height(6.dp).clip(CircleShape))
-                    Sub("${(s.progress * 100).roundToInt()}%" + (s.etaMs?.let { " · ${formatEta(it)}" } ?: ""))
+                    Sub("${(s.progress * 100).roundToInt()}%" + (s.speedX?.let { String.format(java.util.Locale.US, " · %.1f× real time", it) } ?: "") + (s.etaMs?.let { " · ${formatEta(it)}" } ?: ""))
                 }
-                is Status.Done -> Text(
-                    "${formatBytes(job.source.sizeBytes)} → ${formatBytes(s.outputBytes)}  (−${percentSaved(job.source.sizeBytes, s.outputBytes)}%)",
-                    color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
-                )
+                is Status.Done -> {
+                    Text(
+                        "${formatBytes(job.source.sizeBytes)} → ${formatBytes(s.outputBytes)}  (−${percentSaved(job.source.sizeBytes, s.outputBytes)}%)",
+                        color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                    )
+                    if (s.libraryId != null) Sub("Tap to compare and see stats")
+                }
                 is Status.Skipped -> Sub(s.reason)
                 is Status.Failed -> Text(s.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Status.Cancelled -> Sub("Cancelled")

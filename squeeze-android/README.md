@@ -10,6 +10,9 @@ This is an independent app in this repository's `squeeze-android/` directory. It
 - Choose **Balanced**, **Small**, **Tiny**, or **Size** (compress each video to at most N MB).
 - Live estimate of the result before you start. Compression runs in a foreground service, so you can leave the app.
 - Results are saved to `Movies/Squeeze`. Originals are never modified.
+- **Library** tab keeps every finished video with total space saved. Entries disappear if the video is deleted elsewhere.
+- **Before/after** drag slider compares the same frame from the original and the result.
+- **Nerd stats** compare measured resolution, frame rate, codec, bitrates, bits per pixel, plus encode time, speed, compression ratio and estimate accuracy.
 
 ## How the compression works
 
@@ -28,6 +31,7 @@ Encoding uses Media3 Transformer and the phone's MediaCodec hardware encoders in
 - Hardware encoders are fast but less efficient than software x265, and there is no true two-pass mode. The planner compensates with a conservative bitrate budget.
 - The size estimate assumes the encoder hits its bitrate. Real output varies with how busy the footage is.
 - Compression ratios and encode speed have not been measured on a physical device in this repository.
+- The library lives in app-private storage; clearing app data or uninstalling removes the history (not the videos).
 
 ## Build
 

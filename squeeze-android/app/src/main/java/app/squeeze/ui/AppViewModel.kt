@@ -34,6 +34,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val probing = MutableStateFlow(0)
     val settings = MutableStateFlow(Settings())
     val queue = manager.state
+    private val store = squeeze.library
+    val library = store.entries
+    val tab = MutableStateFlow(Tab.Compress)
+    val detailId = MutableStateFlow<String?>(null)
     val isProbing: StateFlow<Boolean> = probing.map { it > 0 }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val entries: StateFlow<List<Entry>> = combine(picked, settings) { list, s ->
@@ -70,6 +74,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         manager.submit(pending, settings.value)
         picked.value = emptyList()
     }
+
+    fun frameFile(id: String, before: Boolean) = if (before) store.beforeFrame(id) else store.afterFrame(id)
+
+    fun openDetail(id: String) {
+        detailId.value = id
+    }
+
+    fun closeDetail() {
+        detailId.value = null
+    }
+
+    suspend fun refreshLibrary() = store.refresh()
+
+    suspend fun removeFromLibrary(id: String, deleteFile: Boolean) = store.remove(id, deleteFile)
 
     fun cancel() = manager.cancel()
 

@@ -7,12 +7,15 @@ import android.net.Uri
 import android.os.SystemClock
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
+import app.squeeze.model.LibraryEntry
+import app.squeeze.model.Mode
 import app.squeeze.model.Plan
 import app.squeeze.model.Planner
 import app.squeeze.model.Settings
 import app.squeeze.model.Source
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -29,8 +32,8 @@ import kotlinx.coroutines.withContext
 
 sealed interface Status {
     data object Queued : Status
-    data class Running(val progress: Float, val etaMs: Long?) : Status
-    data class Done(val output: Uri, val outputBytes: Long) : Status
+    data class Running(val progress: Float, val etaMs: Long?, val speedX: Float?) : Status
+    data class Done(val output: Uri, val outputBytes: Long, val libraryId: String?) : Status
     data class Skipped(val reason: String) : Status
     data class Failed(val message: String) : Status
     data object Cancelled : Status
@@ -44,7 +47,7 @@ data class QueueState(val jobs: List<Item> = emptyList(), val active: Boolean = 
 }
 
 /** Owns the compression queue. The foreground service only keeps the process alive and mirrors this state. */
-class CompressionManager(private val app: Context) {
+class CompressionManager(private val app: Context, private val library: LibraryStore) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val compressor = VideoCompressor(app)
     private val _state = MutableStateFlow(QueueState())
@@ -104,7 +107,8 @@ class CompressionManager(private val app: Context) {
             compressor.compress(job.uri, tmp, job.plan, job.source.isHdr, settings.muteAudio) { p ->
                 val elapsed = SystemClock.elapsedRealtime() - started
                 val eta = if (p > 0.03f) (elapsed / p * (1 - p)).toLong() else null
-                setStatus(job.id, Status.Running(p, eta))
+                val speed = if (p > 0.03f && elapsed > 0) job.source.durationMs * p / elapsed else null
+                setStatus(job.id, Status.Running(p, eta, speed))
             }
             val outBytes = tmp.length()
             if (outBytes <= 0) throw IOException("Encoder produced no output")
@@ -112,11 +116,33 @@ class CompressionManager(private val app: Context) {
             if (outBytes > job.source.sizeBytes * (1 - MIN_ACTUAL_SAVING)) {
                 return Status.Skipped("Result was not smaller, so your original was kept")
             }
+            val encodeMs = SystemClock.elapsedRealtime() - started
             val uri = saveToGallery(tmp, outputName(job.name))
-            return Status.Done(uri, outBytes)
+            val id = recordInLibrary(job, settings, uri, outBytes, encodeMs)
+            return Status.Done(uri, outBytes, id)
         } finally {
             withContext(NonCancellable) { tmp.delete() }
         }
+    }
+
+    /** Library bookkeeping must never turn a successful compression into a failure. */
+    private suspend fun recordInLibrary(job: Item, settings: Settings, output: Uri, outBytes: Long, encodeMs: Long): String? = try {
+        val id = UUID.randomUUID().toString()
+        val measured = withContext(Dispatchers.IO) { VideoProbe.probe(app, output).source }
+        val after = measured?.copy(sizeBytes = outBytes) ?: job.source.copy(
+            sizeBytes = outBytes, width = job.plan.width, height = job.plan.height,
+            videoBitrate = job.plan.videoBitrate, mime = job.plan.codec.mime,
+        )
+        val hasFrames = library.saveFrames(id, job.uri, output, job.source.durationMs)
+        val mode = if (settings.mode == Mode.Preset) settings.preset.label else "≤ ${settings.targetMb} MB"
+        library.add(
+            LibraryEntry(id, System.currentTimeMillis(), job.name, output.toString(), job.source, after, encodeMs, job.plan.estimatedBytes, "$mode · ${job.plan.codec.label}", hasFrames),
+        )
+        id
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     private fun setStatus(id: Int, status: Status) = _state.update { s ->
