@@ -44,7 +44,13 @@ class SoundMeter(private val context: Context) {
     @Volatile private var stopReason = "Stopped"
     @Volatile private var stopRequested = false
 
-    /** Called on the UI thread. Repeated starts cannot create overlapping microphone owners. */
+    /**
+     * Called on the UI thread. Repeated starts cannot create overlapping microphone owners.
+     *
+     * RECORD_AUDIO is declared only in editions that include this tool (see src/ultimate/AndroidManifest.xml) and is checked at
+     * runtime below before any recording starts, so lint's MissingPermission is suppressed for the other editions, where R8 strips this code.
+     */
+    @android.annotation.SuppressLint("MissingPermission")
     fun start(offset: Double?) {
         if (job?.isCompleted == false) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
