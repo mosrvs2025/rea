@@ -28,6 +28,7 @@ android {
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "true")
+            buildConfigField("boolean", "HAS_SOUND", "true")
         }
         create("squeeze") {
             dimension = "edition"
@@ -36,6 +37,7 @@ android {
             buildConfigField("boolean", "HAS_SQUEEZE", "true")
             buildConfigField("boolean", "HAS_AUDIO", "false")
             buildConfigField("boolean", "HAS_PLUCK", "false")
+            buildConfigField("boolean", "HAS_SOUND", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -44,6 +46,7 @@ android {
             buildConfigField("boolean", "HAS_SQUEEZE", "false")
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "false")
+            buildConfigField("boolean", "HAS_SOUND", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -52,6 +55,7 @@ android {
             buildConfigField("boolean", "HAS_SQUEEZE", "false")
             buildConfigField("boolean", "HAS_AUDIO", "false")
             buildConfigField("boolean", "HAS_PLUCK", "true")
+            buildConfigField("boolean", "HAS_SOUND", "false")
         }
     }
 

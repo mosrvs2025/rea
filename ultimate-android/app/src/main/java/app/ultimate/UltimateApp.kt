@@ -1,6 +1,7 @@
 package app.ultimate
 
 import android.app.Application
+import app.ultimate.sound.SoundTool
 import app.ultimate.audio.AudioTool
 import app.ultimate.audio.engine.AudioManager
 import app.ultimate.audio.engine.AudioStore
@@ -48,6 +49,7 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
+            if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
         }
     }
 

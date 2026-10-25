@@ -10,6 +10,7 @@ This is an independent app in this repository's `ultimate-android/` directory, u
 | --- | --- |
 | **Squeeze** | Shrinks videos with the phone's hardware encoders (HEVC when available), with size targets, a live synced before/after player and measured stats. |
 | **Video to audio** | Extracts a video's sound as **MP3** (real LAME encoding), **M4A** (the original AAC, copied untouched) or **WAV**. Trim, mono, bitrate choice, live waveform, in-app player. |
+| **Sound meter** | Live microphone levels, energy averages, a level timeline, reference calibration, named sessions, comparisons and CSV export. Foreground-screen capture only; no audio files are recorded. |
 | **Pluck** | Lists installed apps, extracts their APKs (split APKs become one `.apks` bundle), and shows details, permissions, signing certificate and an offline ad/tracker SDK scan. |
 
 The **Library** tab lists everything any tool made, filterable by tool. The **Activity** tab shows each tool's current or last run with a live terminal log (codecs chosen, encoder names, real bitrates, speed, files written); the same log appears on every progress screen. Videos shared to Ultimate from other apps go to Squeeze or Video to audio (you choose when both apply).
@@ -62,3 +63,13 @@ gradle :app:assembleRelease    # every edition: app/build/outputs/apk/<edition>/
 ```
 
 The release build is signed with the debug key for sideloading. Configure your own keystore before distributing.
+
+## Sound meter
+
+Available in the Ultimate edition only. Microphone permission is requested after tapping Start; the other editions do not declare it. Capture stops on navigation or when the app leaves the foreground, and the session is saved to the shared Library. No microphone foreground service or background recording is used.
+
+Uncalibrated values are **dBFS** (digital microphone levels), with a −120 dBFS display floor. A manually supplied reference offset enables an explicitly labeled **estimated SPL** view. It is unweighted, not dBA, and not a certified sound-level meter. Match calibration to the actual microphone route; Android processing and clipping affect readings. Calibration is stored locally. Samples are processed in memory; saved sessions contain interval levels, clipping counts, calibration metadata and the input route, never audio.
+
+The timeline retains the latest 120 roughly one-second intervals; full session intervals remain in the saved session and CSV. The elapsed counter measures captured samples, not wall-clock gaps. The session records why capture ended. Energy averages weight actual sample counts. Min/max refer to captured read-block RMS levels; sample peak is a digital sample peak. No fabricated random or history-dependent boosts are applied. Sessions can be renamed, compared, deleted and exported using Android's document picker. Exported CSV includes digital levels and separate calibration/estimated-SPL columns.
+
+Sound-meter unit tests cover silence, a sine wave, amplitude doubling, uneven reads, clipping, partial buffers and determinism. Physical-device accuracy and interruption/lifecycle testing remain required before relying on readings.
