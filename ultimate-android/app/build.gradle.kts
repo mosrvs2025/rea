@@ -29,6 +29,28 @@ android {
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "true")
             buildConfigField("boolean", "HAS_SOUND", "true")
+            buildConfigField("boolean", "HAS_TRAFFIC", "false")
+        }
+        // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
+        create("ultimateplus") {
+            dimension = "edition"
+            applicationId = "app.ultimate.plus"
+            resValue("string", "app_name", "Ultimate+")
+            buildConfigField("boolean", "HAS_SQUEEZE", "true")
+            buildConfigField("boolean", "HAS_AUDIO", "true")
+            buildConfigField("boolean", "HAS_PLUCK", "true")
+            buildConfigField("boolean", "HAS_SOUND", "true")
+            buildConfigField("boolean", "HAS_TRAFFIC", "true")
+        }
+        create("traffic") {
+            dimension = "edition"
+            applicationId = "app.ultimate.traffic"
+            resValue("string", "app_name", "Traffic Inspector")
+            buildConfigField("boolean", "HAS_SQUEEZE", "false")
+            buildConfigField("boolean", "HAS_AUDIO", "false")
+            buildConfigField("boolean", "HAS_PLUCK", "false")
+            buildConfigField("boolean", "HAS_SOUND", "false")
+            buildConfigField("boolean", "HAS_TRAFFIC", "true")
         }
         create("squeeze") {
             dimension = "edition"
@@ -38,6 +60,7 @@ android {
             buildConfigField("boolean", "HAS_AUDIO", "false")
             buildConfigField("boolean", "HAS_PLUCK", "false")
             buildConfigField("boolean", "HAS_SOUND", "false")
+            buildConfigField("boolean", "HAS_TRAFFIC", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -47,6 +70,7 @@ android {
             buildConfigField("boolean", "HAS_AUDIO", "true")
             buildConfigField("boolean", "HAS_PLUCK", "false")
             buildConfigField("boolean", "HAS_SOUND", "false")
+            buildConfigField("boolean", "HAS_TRAFFIC", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -56,6 +80,7 @@ android {
             buildConfigField("boolean", "HAS_AUDIO", "false")
             buildConfigField("boolean", "HAS_PLUCK", "true")
             buildConfigField("boolean", "HAS_SOUND", "false")
+            buildConfigField("boolean", "HAS_TRAFFIC", "false")
         }
     }
 

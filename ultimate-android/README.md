@@ -23,6 +23,18 @@ The **Library** tab lists everything any tool made, filterable by tool. The **Ac
 - Ads & trackers report: every scanned app, searchable, sortable, filterable by SDK kind or a single SDK, plus a ranking of SDKs across your apps. Every row opens the app.
 - Extract options: **APK** (installs as-is) or **Compact**, a maximum-compression pack for sending, shown with estimated size and checks against 16/25/30/100 MB before anything is written. Modern APKs store code, native libraries and resources uncompressed so apps start fast, so packing typically halves them (measured on four real APKs: 49 to 53% smaller). The APK itself cannot be made smaller and still install as the same app, because its signature covers every byte; unpacking gives back the untouched original. Single apps become `.zip`; split apps become a compressed `.apks` that split installers such as SAI read directly.
 
+## Traffic inspector
+
+Shows which servers chosen apps talk to, live, using a local VPN. The VPN is only Android's `VpnService` API: there is no VPN server and no account. The chosen apps' packets enter a tunnel that ends in this app, which replays each connection over an ordinary protected socket to the real server and wraps the replies back (`traffic/engine/`, a small user-space TCP/UDP stack). Only the apps you select enter the tunnel.
+
+- **Sees:** each connection's server, port, byte counts and timing; site names from DNS and the TLS handshake's server name; unencrypted HTTP requests (flagged); which hosts belong to known ad, analytics and crash-reporting services (`traffic/model/TrafficModel.kt`, a best-effort list, not exhaustive).
+- **Cannot see:** what encrypted traffic says. Nothing is decrypted and no certificate is installed. IPv6-only traffic is not captured.
+- **Blocking:** domains (or all ad networks) can be refused at the DNS step, plus connections whose handshake names a blocked site. Apps with hard-coded addresses or encrypted DNS can slip past.
+- **Code vs network:** with the Pluck scanner present, each app shows which SDKs found in its code were actually contacted this session, answering "present or in use?".
+- **Reports:** a session can be saved as CSV to `Downloads/Ultimate` and appears in the Library.
+- **Safety:** the relay is covered by JVM tests that drive it with real loopback sockets (handshake, bidirectional data, a 300 KB download under a small window, resets, half-close, DNS, blocking, QUIC refusal). It has not been run against a real phone's tunnel in this repository. Stopping always releases the tunnel.
+- **Why separate editions:** a relay must open internet connections, so it needs the `INTERNET` permission, which the offline editions deliberately never request. The inspector ships as **Traffic Inspector** (standalone) and inside **Ultimate+**; plain **Ultimate** stays offline.
+
 ## Editions: building a tool as its own app
 
 One codebase builds several apps. `app/build.gradle.kts` defines an edition per product flavor, each with its own app id, name, icon (`src/<edition>/res`) and manifest additions (`src/<edition>/AndroidManifest.xml`, e.g. share targets and the app-listing permission only where needed). `HAS_*` flags switch tools on; they are compile-time constants, so R8 strips every tool an edition does not include.
@@ -31,6 +43,8 @@ One codebase builds several apps. `app/build.gradle.kts` defines an edition per 
 | --- | --- | --- |
 | Ultimate (all tools) | `gradle :app:assembleUltimateRelease` | `app.ultimate` |
 | Squeeze | `gradle :app:assembleSqueezeRelease` | `app.squeeze` |
+| Ultimate+ (all tools and the inspector; has internet permission) | `gradle :app:assembleUltimateplusRelease` | `app.ultimate.plus` |
+| Traffic Inspector | `gradle :app:assembleTrafficRelease` | `app.ultimate.traffic` |
 | Video to Audio | `gradle :app:assembleAudioRelease` | `app.ultimate.audio` |
 | Pluck | `gradle :app:assemblePluckRelease` | `app.pluck` |
 

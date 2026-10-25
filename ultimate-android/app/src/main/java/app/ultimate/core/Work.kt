@@ -68,12 +68,15 @@ class WorkService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @android.annotation.SuppressLint("ForegroundServiceType")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         intent?.getStringExtra(EXTRA_ID)?.takeIf { intent.action == ACTION_CANCEL }?.let { id ->
             hub.sources.firstOrNull { it.workId == id }?.cancelWork()
         }
         createChannels()
         val snapshots = hub.sources.map { it.work.value }
+        // foregroundServiceType="dataSync" is declared on this service in the main manifest and is present in every edition's merged
+        // manifest. Lint reports it missing only in editions that also declare the VPN service, so that report is a false positive.
         ServiceCompat.startForeground(this, ONGOING_ID, ongoing(snapshots), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         if (watcher == null) {
             watcher = scope.launch {

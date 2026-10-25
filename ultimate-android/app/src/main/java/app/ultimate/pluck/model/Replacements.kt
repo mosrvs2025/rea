@@ -47,15 +47,15 @@ object Replacements {
     private val byPackage = known.associateBy { it.originalPackage }
 
     /** Our own editions must never be offered for cleanup, even if someone marks them by hand. */
-    val ours = setOf("app.ultimate", "app.squeeze", "app.ultimate.audio", "app.pluck")
+    val ours = setOf("app.ultimate", "app.ultimate.plus", "app.squeeze", "app.ultimate.audio", "app.pluck", "app.ultimate.traffic")
 
     fun forPackage(pkg: String): Replacement? = byPackage[pkg]
 
     private val names = mapOf("squeeze" to "Squeeze", "audio" to "Video to audio", "pluck" to "Pluck")
     private val homes = mapOf(
-        "squeeze" to listOf("app.squeeze", "app.ultimate"),
-        "audio" to listOf("app.ultimate.audio", "app.ultimate"),
-        "pluck" to listOf("app.pluck", "app.ultimate"),
+        "squeeze" to listOf("app.squeeze", "app.ultimate", "app.ultimate.plus"),
+        "audio" to listOf("app.ultimate.audio", "app.ultimate", "app.ultimate.plus"),
+        "pluck" to listOf("app.pluck", "app.ultimate", "app.ultimate.plus"),
     )
 
     fun toolName(id: String) = names[id] ?: id
