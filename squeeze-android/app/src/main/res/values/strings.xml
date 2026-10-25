@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Squeeze</string>
+    <string name="channel_progress">Compression progress</string>
+    <string name="channel_done">Finished videos</string>
+</resources>
