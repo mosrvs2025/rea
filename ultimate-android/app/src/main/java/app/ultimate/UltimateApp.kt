@@ -1,0 +1,52 @@
+package app.ultimate
+
+import android.app.Application
+import app.ultimate.audio.AudioTool
+import app.ultimate.audio.engine.AudioManager
+import app.ultimate.audio.engine.AudioStore
+import app.ultimate.core.Tool
+import app.ultimate.core.WorkHub
+import app.ultimate.home.Shell
+import app.ultimate.pluck.PluckTool
+import app.ultimate.pluck.engine.AppRepository
+import app.ultimate.pluck.engine.ExtractManager
+import app.ultimate.pluck.engine.HistoryStore
+import app.ultimate.pluck.engine.ScanStore
+import app.ultimate.squeeze.SqueezeTool
+import app.ultimate.squeeze.engine.CompressionManager
+import app.ultimate.squeeze.engine.DeviceCodecs
+import app.ultimate.squeeze.engine.LibraryStore
+
+/**
+ * Wires the tools together. To add a tool: give it a package, implement [Tool], build its services here,
+ * register any background work with [work], and add it to [tools].
+ */
+class UltimateApp : Application() {
+    val work: WorkHub by lazy { WorkHub(this) }
+    val shell: Shell by lazy { Shell(tools) }
+
+    // Squeeze
+    val capabilities by lazy { DeviceCodecs.detect() }
+    val squeezeLibrary: LibraryStore by lazy { LibraryStore(this) }
+    val squeezeManager: CompressionManager by lazy { CompressionManager(this, squeezeLibrary, work) }
+
+    // Pluck
+    val pluckRepository: AppRepository by lazy { AppRepository(this) }
+    val pluckHistory: HistoryStore by lazy { HistoryStore(this) }
+    val pluckScans: ScanStore by lazy { ScanStore(this) }
+    val pluckManager: ExtractManager by lazy { ExtractManager(this, pluckHistory, work) }
+
+    // Video to audio
+    val audioStore: AudioStore by lazy { AudioStore(this) }
+    val audioManager: AudioManager by lazy { AudioManager(this, audioStore, work) }
+
+    val tools: List<Tool> by lazy { listOf(SqueezeTool(this), AudioTool(this), PluckTool(this)) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // Every manager must be registered before the first background job starts, so the one service watches them all.
+        work.register(squeezeManager)
+        work.register(pluckManager)
+        work.register(audioManager)
+    }
+}

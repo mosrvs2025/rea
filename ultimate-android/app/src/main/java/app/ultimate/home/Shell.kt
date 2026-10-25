@@ -1,0 +1,64 @@
+package app.ultimate.home
+
+import android.net.Uri
+import app.ultimate.core.Tool
+import app.ultimate.core.ToolLaunch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+sealed interface Route {
+    data object Home : Route
+    data object Library : Route
+    data class InTool(val tool: Tool, val launch: ToolLaunch) : Route
+}
+
+/** Files shared into the app that more than one tool could handle; the user picks. */
+data class Incoming(val uris: List<Uri>, val candidates: List<Tool>)
+
+/** Where the user is: Home, the Library, or inside a tool. Lives for the whole process so a share never loses its place. */
+class Shell(private val tools: List<Tool>) {
+    private val _route = MutableStateFlow<Route>(Route.Home)
+    val route: StateFlow<Route> = _route.asStateFlow()
+    private val _incoming = MutableStateFlow<Incoming?>(null)
+    val incoming: StateFlow<Incoming?> = _incoming.asStateFlow()
+    private var lastTopLevel: Route = Route.Home
+
+    fun showHome() = top(Route.Home)
+    fun showLibrary() = top(Route.Library)
+
+    private fun top(route: Route) {
+        lastTopLevel = route
+        _route.value = route
+    }
+
+    fun open(tool: Tool, launch: ToolLaunch = ToolLaunch()) {
+        _route.value = Route.InTool(tool, launch)
+    }
+
+    fun exitTool() {
+        _route.value = lastTopLevel
+    }
+
+    /** Called when other apps share files here. One capable tool opens directly; several ask first. */
+    fun offerShared(uris: List<Uri>, mime: String?) {
+        if (uris.isEmpty()) return
+        val type = mime.orEmpty()
+        val candidates = tools.filter { t -> t.acceptedMimePrefixes.any { type.startsWith(it) } }
+        when (candidates.size) {
+            0 -> Unit
+            1 -> open(candidates.first(), ToolLaunch(uris))
+            else -> _incoming.value = Incoming(uris, candidates)
+        }
+    }
+
+    fun chooseForIncoming(tool: Tool) {
+        val pending = _incoming.value ?: return
+        _incoming.value = null
+        open(tool, ToolLaunch(pending.uris))
+    }
+
+    fun dismissIncoming() {
+        _incoming.value = null
+    }
+}
