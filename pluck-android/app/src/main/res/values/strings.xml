@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Pluck</string>
+    <string name="channel_progress">Extraction progress</string>
+    <string name="channel_done">Finished extractions</string>
+</resources>
