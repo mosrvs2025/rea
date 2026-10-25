@@ -52,7 +52,7 @@ enum class Sort(val label: String) {
 
 /** Extra filters that can be combined. Tracker filters only see apps that have been scanned. */
 enum class QuickFilter(val label: String) {
-    HasAds("Has ads"), Sideloaded("Sideloaded"), PlayStore("Play Store"), Split("Split APK"), Under30("Under 30 MB"), Disabled("Disabled"),
+    Replaced("Replaced"), HasAds("Has ads"), Sideloaded("Sideloaded"), PlayStore("Play Store"), Split("Split APK"), Under30("Under 30 MB"), Disabled("Disabled"),
 }
 
 /** Everything that decides which apps the list shows and in what order. */
@@ -66,10 +66,11 @@ data class ListOptions(
 /** Tracker facts for one app, when it has been scanned. */
 data class TrackerFacts(val sdks: List<String>, val adSdks: Int)
 
-fun List<AppItem>.arrange(query: String, o: ListOptions, trackers: Map<String, TrackerFacts>): List<AppItem> {
+fun List<AppItem>.arrange(query: String, o: ListOptions, trackers: Map<String, TrackerFacts>, replaced: Set<String> = emptySet()): List<AppItem> {
     val shown = filter { a ->
         o.filter.accepts(a) && a.matches(query) && o.quick.all { q ->
             when (q) {
+                QuickFilter.Replaced -> a.packageName in replaced
                 QuickFilter.HasAds -> (trackers[a.packageName]?.adSdks ?: 0) > 0
                 QuickFilter.Sideloaded -> a.source == AppSource.Sideloaded
                 QuickFilter.PlayStore -> a.source == AppSource.PlayStore

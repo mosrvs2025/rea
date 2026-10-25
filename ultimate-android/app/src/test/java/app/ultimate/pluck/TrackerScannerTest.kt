@@ -86,3 +86,68 @@ class ListOptionsTest {
         assertTrue("est $est", est in 10_500_000..12_500_000)
     }
 }
+
+class ReplacementsTest {
+    private fun app(pkg: String, name: String = pkg) = app.ultimate.pluck.model.AppItem(
+        packageName = pkg, label = name, versionName = "1", versionCode = 1, isSystem = false, enabled = true, apkPaths = listOf("/x.apk"),
+        apkBytes = 10_000_000, installTime = 0, updateTime = 0, installer = null, minSdk = 26, targetSdk = 34, permissionCount = 0, dangerousCount = 0,
+    )
+
+    private val original = app("com.toralabs.apkextractor", "Apk Extractor")
+    private val unrelated = app("com.example.other")
+
+    @Test fun toolBuiltIntoThisAppIsAvailable() {
+        val av = app.ultimate.pluck.model.Replacements.availability(setOf("squeeze", "audio", "pluck"), setOf("app.ultimate"))
+        assertEquals(setOf("squeeze", "audio", "pluck"), av.keys)
+        assertTrue(av.getValue("squeeze").endsWith("in this app"))
+    }
+
+    @Test fun standaloneEditionSeesOtherToolsOnlyWhenInstalled() {
+        val none = app.ultimate.pluck.model.Replacements.availability(setOf("pluck"), setOf("app.pluck"))
+        assertEquals(setOf("pluck"), none.keys)
+        val withSqueeze = app.ultimate.pluck.model.Replacements.availability(setOf("pluck"), setOf("app.pluck", "app.squeeze"))
+        assertEquals(setOf("pluck", "squeeze"), withSqueeze.keys)
+        val viaSuite = app.ultimate.pluck.model.Replacements.availability(setOf("pluck"), setOf("app.pluck", "app.ultimate"))
+        assertEquals(setOf("pluck", "squeeze", "audio"), viaSuite.keys)
+    }
+
+    @Test fun findsKnownAppsOnlyWhenTheirReplacementIsUsable() {
+        val av = mapOf("pluck" to "Pluck in this app")
+        val found = app.ultimate.pluck.model.Replacements.find(listOf(original, unrelated), av, emptyMap(), emptySet())
+        assertEquals(listOf("com.toralabs.apkextractor"), found.map { it.app.packageName })
+        assertTrue(app.ultimate.pluck.model.Replacements.find(listOf(original), emptyMap(), emptyMap(), emptySet()).isEmpty())
+    }
+
+    @Test fun partialReplacementsAreOnlySafeOnceAccepted() {
+        val av = mapOf("pluck" to "Pluck in this app")
+        val before = app.ultimate.pluck.model.Replacements.find(listOf(original), av, emptyMap(), emptySet()).single()
+        assertTrue(!before.safe)
+        assertTrue(before.replacement.missing.isNotEmpty())
+        val after = app.ultimate.pluck.model.Replacements.find(listOf(original), av, emptyMap(), setOf(original.packageName)).single()
+        assertTrue(after.safe)
+    }
+
+    @Test fun handMarkedAppsCountAsSafeAndOurOwnAppsAreNeverOffered() {
+        val mine = app("com.example.mine", "Mine")
+        val custom = mapOf(
+            mine.packageName to app.ultimate.pluck.model.Replacement(mine.packageName, "Mine", "squeeze", app.ultimate.pluck.model.Coverage.Full),
+            "app.ultimate" to app.ultimate.pluck.model.Replacement("app.ultimate", "Ultimate", "squeeze", app.ultimate.pluck.model.Coverage.Full),
+        )
+        val av = mapOf("squeeze" to "Squeeze in this app")
+        val found = app.ultimate.pluck.model.Replacements.find(listOf(mine, app("app.ultimate")), av, custom, emptySet())
+        assertEquals(listOf("com.example.mine"), found.map { it.app.packageName })
+        assertTrue(found.single().safe)
+    }
+
+    @Test fun replacedQuickFilterShowsOnlyThoseApps() {
+        val shown = listOf(original, unrelated).arrange("", app.ultimate.pluck.model.ListOptions(quick = setOf(app.ultimate.pluck.model.QuickFilter.Replaced)), emptyMap(), setOf(original.packageName))
+        assertEquals(listOf("Apk Extractor"), shown.map { it.label })
+    }
+
+    @Test fun everyKnownEntryPointsAtARealToolAndNeverAtOurOwnPackage() {
+        app.ultimate.pluck.model.Replacements.known.forEach {
+            assertTrue(it.toolId in setOf("squeeze", "audio", "pluck"))
+            assertTrue(it.originalPackage !in app.ultimate.pluck.model.Replacements.ours)
+        }
+    }
+}

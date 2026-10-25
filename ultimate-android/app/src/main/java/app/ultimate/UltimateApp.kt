@@ -11,6 +11,7 @@ import app.ultimate.pluck.PluckTool
 import app.ultimate.pluck.engine.AppRepository
 import app.ultimate.pluck.engine.ExtractManager
 import app.ultimate.pluck.engine.HistoryStore
+import app.ultimate.pluck.engine.ReplacementStore
 import app.ultimate.pluck.engine.ScanStore
 import app.ultimate.squeeze.SqueezeTool
 import app.ultimate.squeeze.engine.CompressionManager
@@ -34,6 +35,7 @@ class UltimateApp : Application() {
     val pluckRepository: AppRepository by lazy { AppRepository(this) }
     val pluckHistory: HistoryStore by lazy { HistoryStore(this) }
     val pluckScans: ScanStore by lazy { ScanStore(this) }
+    val pluckReplacements: ReplacementStore by lazy { ReplacementStore(this) }
     val pluckManager: ExtractManager by lazy { ExtractManager(this, pluckHistory, work) }
 
     // Video to audio

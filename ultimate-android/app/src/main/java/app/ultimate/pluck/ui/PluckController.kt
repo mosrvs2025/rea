@@ -9,7 +9,9 @@ import app.ultimate.pluck.model.AppItem
 import app.ultimate.pluck.engine.ApkComposition
 import app.ultimate.pluck.engine.Extractor
 import app.ultimate.pluck.engine.SdkKind
+import app.ultimate.pluck.model.Cleanup
 import app.ultimate.pluck.model.Filter
+import app.ultimate.pluck.model.Replacements
 import app.ultimate.pluck.model.ListOptions
 import app.ultimate.pluck.model.QuickFilter
 import app.ultimate.pluck.model.Sort
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,7 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger
 enum class Tab { Apps, Insights }
 
 /** Full-screen pages layered over the tabs. */
-enum class Page { Main, Trackers }
+enum class Page { Main, Trackers, Cleanup }
 
 data class ScanProgress(val done: Int, val total: Int)
 
@@ -69,8 +72,28 @@ class PluckController(private val app: UltimateApp) {
         }.toMap()
     }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
-    val visible: StateFlow<List<AppItem>> = combine(apps, query, options, trackers) { all, q, o, t -> all.arrange(q, o, t) }
+    /** Tools usable right now (built in, or in an installed edition), by tool id. */
+    private val available: StateFlow<Map<String, String>> = apps.map { all ->
+        Replacements.availability(app.tools.map { it.id }.toSet(), all.map { it.packageName }.toSet())
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    val marks = app.pluckReplacements.marks
+
+    /** Installed apps one of our tools can stand in for, newest decisions applied. */
+    val cleanup: StateFlow<List<Cleanup>> = combine(apps, available, marks) { all, av, m -> Replacements.find(all, av, m.custom, m.accepted) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Tools a user can pick when marking an app as replaced. */
+    val markTargets: StateFlow<Map<String, String>> = available
+
+    val visible: StateFlow<List<AppItem>> = combine(apps, query, options, trackers, cleanup) { all, q, o, t, c ->
+        all.arrange(q, o, t, c.map { it.app.packageName }.toSet())
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    fun markReplaced(item: AppItem, toolId: String) { scope.launch { app.pluckReplacements.mark(item, toolId) } }
+    fun unmarkReplaced(pkg: String) { scope.launch { app.pluckReplacements.unmark(pkg) } }
+    fun acceptMissing(pkg: String) { scope.launch { app.pluckReplacements.accept(pkg) } }
+    fun revokeAccepted(pkg: String) { scope.launch { app.pluckReplacements.revoke(pkg) } }
     val scanProgress = MutableStateFlow<ScanProgress?>(null)
     private var scanJob: Job? = null
     val shareWhenDone = MutableStateFlow(false)

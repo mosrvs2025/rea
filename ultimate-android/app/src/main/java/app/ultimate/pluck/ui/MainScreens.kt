@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CleaningServices
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
@@ -102,6 +103,8 @@ import app.ultimate.core.rememberNotificationConsent
 import app.ultimate.core.uninstallApp
 import app.ultimate.pluck.model.AppItem
 import app.ultimate.pluck.model.AppSource
+import app.ultimate.pluck.model.Cleanup
+import app.ultimate.pluck.model.Replacements
 import app.ultimate.pluck.model.Filter
 import app.ultimate.pluck.model.QuickFilter
 import app.ultimate.pluck.model.Sort
@@ -124,6 +127,7 @@ fun PluckScreen(c: PluckController, onExit: () -> Unit) {
         extraction.jobs.isNotEmpty() -> ExtractScreen(c, extraction)
         detailPackage != null -> DetailScreen(c, onExtract)
         page == Page.Trackers -> TrackerReport(c, onBack = { c.openPage(Page.Main) })
+        page == Page.Cleanup -> CleanupScreen(c, onBack = { c.openPage(Page.Main) }, onExtract)
         else -> MainScreen(c, onExtract, onExit)
     }
 
@@ -206,9 +210,13 @@ private fun AppsTab(vm: PluckController, onExtract: (List<AppItem>) -> Unit, onE
     val selection by vm.selection.collectAsStateWithLifecycle()
     val apps by vm.apps.collectAsStateWithLifecycle()
     val trackers by vm.trackers.collectAsStateWithLifecycle()
+    val cleanup by vm.cleanup.collectAsStateWithLifecycle()
+    val targets by vm.markTargets.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     var sortMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
+    var markFor by remember { mutableStateOf<AppItem?>(null) }
+    val replacedBy = remember(cleanup) { cleanup.associateBy { it.app.packageName } }
     val userApps = apps.filter { !it.isSystem }
     val needsScan = (options.sort == Sort.Trackers || QuickFilter.HasAds in options.quick) && trackers.isEmpty()
 
@@ -234,6 +242,10 @@ private fun AppsTab(vm: PluckController, onExtract: (List<AppItem>) -> Unit, onE
                     DropdownMenuItem(
                         text = { Text("Extract everything shown (${visible.size})") }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) },
                         onClick = { moreMenu = false; onExtract(visible) }, enabled = visible.isNotEmpty(),
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clean up replaced apps (${cleanup.size})") }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) },
+                        onClick = { moreMenu = false; vm.openPage(Page.Cleanup) }, enabled = cleanup.isNotEmpty(),
                     )
                     DropdownMenuItem(
                         text = { Text("Scan apps for trackers") }, leadingIcon = { Icon(Icons.Rounded.Radar, null) },
@@ -280,6 +292,29 @@ private fun AppsTab(vm: PluckController, onExtract: (List<AppItem>) -> Unit, onE
                 )
             }
         }
+        if (cleanup.isNotEmpty() && options.quick.isEmpty()) {
+            val ready = cleanup.filter { it.safe }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp)).clickable { vm.openPage(Page.Cleanup) },
+            ) {
+                Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CleaningServices, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "${cleanup.size} app${if (cleanup.size == 1) " has" else "s have"} a cleaner version",
+                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            "${formatBytes(cleanup.sumOf { it.app.apkBytes })} to free · ${ready.size} ready, ${cleanup.size - ready.size} to check",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+        }
         if (needsScan) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -299,23 +334,44 @@ private fun AppsTab(vm: PluckController, onExtract: (List<AppItem>) -> Unit, onE
             else -> LazyColumn(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                 items(visible, key = { it.packageName }) { app ->
                     AppRow(
-                        app, trackers[app.packageName], options.sort, selected = app.packageName in selection,
+                        app, trackers[app.packageName], replacedBy[app.packageName], options.sort, selected = app.packageName in selection,
                         selecting = selection.isNotEmpty(),
                         onClick = { if (selection.isNotEmpty()) vm.toggleSelected(app.packageName) else vm.openDetail(app.packageName) },
                         onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); vm.toggleSelected(app.packageName) },
                         onExtract = { onExtract(listOf(app)) },
+                        onMark = { markFor = app },
+                        onUnmark = { vm.unmarkReplaced(app.packageName) },
+                        canMark = targets.isNotEmpty(),
                     )
                 }
             }
         }
+    }
+
+    markFor?.let { target ->
+        AlertDialog(
+            onDismissRequest = { markFor = null },
+            title = { Text("${target.label} is replaced by…") },
+            text = {
+                Column {
+                    Text("Pick the tool that now does this job. It will show up in Clean up so you can uninstall ${target.label}.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    targets.forEach { (id, where) ->
+                        TextButton({ vm.markReplaced(target, id); markFor = null }, Modifier.fillMaxWidth()) { Text(where, Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton({ markFor = null }) { Text("Cancel") } },
+        )
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppRow(
-    app: AppItem, facts: TrackerFacts?, sort: Sort, selected: Boolean, selecting: Boolean,
-    onClick: () -> Unit, onLongClick: () -> Unit, onExtract: () -> Unit,
+    app: AppItem, facts: TrackerFacts?, cleanup: Cleanup?, sort: Sort, selected: Boolean, selecting: Boolean,
+    onClick: () -> Unit, onLongClick: () -> Unit, onExtract: () -> Unit, onMark: () -> Unit, onUnmark: () -> Unit, canMark: Boolean,
 ) {
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
@@ -350,6 +406,7 @@ private fun AppRow(
                 },
                 maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            cleanup?.let { ReplacedBadge(it) }
             Text(
                 when (sort) {
                     Sort.Installed -> "Installed ${relativeTime(app.installTime)}"
@@ -369,6 +426,12 @@ private fun AppRow(
                     DropdownMenuItem({ Text("App info") }, { menu = false; openAppSettings(context, app.packageName) }, leadingIcon = { Icon(Icons.Rounded.Info, null) })
                     DropdownMenuItem({ Text("Copy package name") }, { menu = false; copyText(context, "Package name", app.packageName) }, leadingIcon = { Icon(Icons.Rounded.ContentCopy, null) })
                     DropdownMenuItem({ Text("Select") }, { menu = false; onLongClick() }, leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    if (cleanup == null && !app.isSystem && canMark) {
+                        DropdownMenuItem({ Text("Mark as replaced…") }, { menu = false; onMark() }, leadingIcon = { Icon(Icons.Rounded.CleaningServices, null) })
+                    }
+                    if (cleanup != null && cleanup.replacement.note?.startsWith("You marked") == true) {
+                        DropdownMenuItem({ Text("Unmark as replaced") }, { menu = false; onUnmark() }, leadingIcon = { Icon(Icons.Rounded.Close, null) })
+                    }
                     if (!app.isSystem) {
                         DropdownMenuItem(
                             { Text("Uninstall", color = MaterialTheme.colorScheme.error) }, { menu = false; uninstallApp(context, app.packageName) },
@@ -381,6 +444,17 @@ private fun AppRow(
             Spacer(Modifier.width(12.dp))
         }
     }
+}
+
+/** "Replaced · Squeeze" when nothing would be lost, "Mostly replaced · Squeeze" when the original does more. */
+@Composable
+fun ReplacedBadge(c: Cleanup) {
+    val color = if (c.safe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    Text(
+        (if (c.safe) "✓ Replaced" else "◐ Mostly replaced") + " · " + Replacements.toolName(c.replacement.toolId),
+        Modifier.padding(vertical = 2.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.14f)).padding(horizontal = 6.dp, vertical = 1.dp),
+        color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+    )
 }
 
 @Composable
@@ -428,6 +502,19 @@ private fun InsightsTab(vm: PluckController, onExit: () -> Unit) {
                         "${formatBytes(user.sumOf { it.apkBytes })} of APKs · ${apps.size - user.size} system apps",
                         style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
+                }
+            }
+        }
+        item {
+            val cleanup by vm.cleanup.collectAsStateWithLifecycle()
+            if (cleanup.isNotEmpty()) {
+                InsightCard("Clean up", "Review", { vm.openPage(Page.Cleanup) }) {
+                    Text(
+                        "${cleanup.size} installed app${if (cleanup.size == 1) " has" else "s have"} a cleaner version here. " +
+                            "Uninstalling them frees ${formatBytes(cleanup.sumOf { it.app.apkBytes })}.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    cleanup.take(4).forEach { c -> BarRow(c.app, 0f, if (c.safe) "ready" else "check", vm::openDetail, showBar = false) }
                 }
             }
         }
