@@ -134,9 +134,10 @@ class CompressionManager(private val app: Context, private val library: LibraryS
             videoBitrate = job.plan.videoBitrate, mime = job.plan.codec.mime,
         )
         val hasFrames = library.saveFrames(id, job.uri, output, job.source.durationMs)
+        val clipStart = library.saveClip(id, job.uri, job.source.durationMs)
         val mode = if (settings.mode == Mode.Preset) settings.preset.label else "≤ ${settings.targetMb} MB"
         library.add(
-            LibraryEntry(id, System.currentTimeMillis(), job.name, output.toString(), job.source, after, encodeMs, job.plan.estimatedBytes, "$mode · ${job.plan.codec.label}", hasFrames),
+            LibraryEntry(id, System.currentTimeMillis(), job.name, output.toString(), job.source, after, encodeMs, job.plan.estimatedBytes, "$mode · ${job.plan.codec.label}", hasFrames, clipStart),
         )
         id
     } catch (e: CancellationException) {

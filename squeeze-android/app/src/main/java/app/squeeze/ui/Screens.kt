@@ -88,6 +88,7 @@ import app.squeeze.engine.Item
 import app.squeeze.engine.QueueState
 import app.squeeze.engine.Status
 import app.squeeze.model.Codec
+import app.squeeze.model.LibraryEntry
 import app.squeeze.model.CodecChoice
 import app.squeeze.model.Mode
 import app.squeeze.model.Plan
@@ -113,10 +114,10 @@ fun SqueezeRoot(vm: AppViewModel, onPick: () -> Unit, onStart: () -> Unit) {
 
     when {
         detail != null -> DetailScreen(
-            entry = detail, beforeFile = vm.frameFile(detail.id, before = true), afterFile = vm.frameFile(detail.id, before = false),
+            entry = detail, beforeFile = vm.frameFile(detail.id, before = true), afterFile = vm.frameFile(detail.id, before = false), clipFile = vm.clipFile(detail.id),
             onBack = vm::closeDetail, onRemove = { deleteFile -> vm.removeFromLibrary(detail.id, deleteFile) },
         )
-        queue.jobs.isNotEmpty() -> RunScreen(queue, onCancel = vm::cancel, onDone = vm::dismissResults, onOpen = vm::openDetail)
+        queue.jobs.isNotEmpty() -> RunScreen(queue, library, vm, onCancel = vm::cancel, onDone = vm::dismissResults, onOpen = vm::openDetail)
         entries.isNotEmpty() || probing -> ConfigureScreen(
             entries = entries, probing = probing, settings = settings, hevc = vm.capabilities.hevc, av1 = vm.capabilities.av1,
             onChange = vm::update, onAdd = onPick, onRemove = vm::remove, onBack = vm::clear, onStart = onStart,
@@ -382,7 +383,7 @@ private fun VideoRow(entry: Entry, onRemove: () -> Unit) {
     val src = entry.probed.source
     val plan = entry.plan
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Thumb(entry.probed.uri, Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)))
+        Thumb(entry.probed.uri, Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)), src?.durationMs ?: 0)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(entry.probed.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -417,13 +418,11 @@ private fun planSummary(p: Plan) = buildString {
 // ───────────────────────────── Run ──────────────────────────────
 
 @Composable
-private fun RunScreen(queue: QueueState, onCancel: () -> Unit, onDone: () -> Unit, onOpen: (String) -> Unit) {
+private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: AppViewModel, onCancel: () -> Unit, onDone: () -> Unit, onOpen: (String) -> Unit) {
     val context = LocalContext.current
     BackHandler(enabled = !queue.active, onBack = onDone)
-    val total = queue.jobs.size
-    val finished = queue.jobs.count { it.status !is Status.Queued && it.status !is Status.Running }
-    val running = queue.jobs.firstOrNull { it.status is Status.Running }
-    val runningProgress = (running?.status as? Status.Running)?.progress ?: 0f
+    val firstDone = queue.jobs.firstNotNullOfOrNull { job -> (job.status as? Status.Done)?.libraryId?.let { id -> library.firstOrNull { it.id == id } } }
+    val celebrate = !queue.active && queue.jobs.any { it.status is Status.Done }
 
     Scaffold(
         bottomBar = {
@@ -438,40 +437,23 @@ private fun RunScreen(queue: QueueState, onCancel: () -> Unit, onDone: () -> Uni
             }
         },
     ) { pad ->
-        LazyColumn(Modifier.padding(pad), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(28.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(24.dp)) {
-                        if (queue.active) {
-                            Text("Compressing", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text(
-                                "${((finished + runningProgress) / max(total, 1) * 100).roundToInt()}%",
-                                style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            LinearProgressIndicator(
-                                progress = { (finished + runningProgress) / max(total, 1) },
-                                modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-                                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text("Video ${minOf(finished + 1, total)} of $total. You can leave the app; it keeps working.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        } else {
-                            val done = queue.jobs.count { it.status is Status.Done }
-                            Text(if (done > 0) "You saved" else "Finished", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                            Text(
-                                if (done > 0) formatBytes(queue.savedBytes) else "Nothing to do",
-                                style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                            Text(
-                                if (done > 0) "Saved to Movies/Squeeze. Your originals were not touched." else "These videos were already efficient.",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+        Box(Modifier.fillMaxSize().padding(pad)) {
+            LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                item { if (queue.active) ProgressHero(queue) else DoneHero(queue) }
+                if (!queue.active) {
+                    firstDone?.let { entry ->
+                        item {
+                            CompareBlock(
+                                entry, beforeFile = vm.frameFile(entry.id, before = true), afterFile = vm.frameFile(entry.id, before = false),
+                                clipFile = vm.clipFile(entry.id), modifier = Modifier.fillMaxWidth(),
                             )
                         }
                     }
+                    item { FunFacts(queue) }
                 }
+                items(queue.jobs, key = { it.id }) { ResultRow(it, context, onOpen) }
             }
-            items(queue.jobs, key = { it.id }) { ResultRow(it, context, onOpen) }
+            if (celebrate) Confetti(Modifier.fillMaxSize())
         }
     }
 }
@@ -483,7 +465,7 @@ private fun ResultRow(job: Item, context: android.content.Context, onOpen: (Stri
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).then(if (libraryId != null) Modifier.clickable { onOpen(libraryId) } else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Thumb(job.uri, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
+        Thumb(job.uri, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)), job.source.durationMs)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(job.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
@@ -526,21 +508,21 @@ private fun Sub(text: String) = Text(text, style = MaterialTheme.typography.body
 // ─────────────────────────── Thumbnails ─────────────────────────
 
 @Composable
-private fun Thumb(uri: Uri, modifier: Modifier) {
+private fun Thumb(uri: Uri, modifier: Modifier, durationMs: Long = 0) {
     val context = LocalContext.current
     var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(uri) { bitmap = withContext(Dispatchers.IO) { loadFrame(context, uri) } }
+    LaunchedEffect(uri) { bitmap = withContext(Dispatchers.IO) { loadFrame(context, uri, durationMs * 300) ?: loadFrame(context, uri, 0) } }
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
         bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             ?: Icon(Icons.Rounded.VideoLibrary, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-private fun loadFrame(context: android.content.Context, uri: Uri): Bitmap? = runCatching {
+private fun loadFrame(context: android.content.Context, uri: Uri, atUs: Long): Bitmap? = runCatching {
     val r = MediaMetadataRetriever()
     try {
         r.setDataSource(context, uri)
-        r.getScaledFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 256, 256)
+        r.getScaledFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 256, 256)
     } finally {
         r.release()
     }

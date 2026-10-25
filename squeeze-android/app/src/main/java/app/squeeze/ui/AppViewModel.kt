@@ -77,6 +77,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun frameFile(id: String, before: Boolean) = if (before) store.beforeFrame(id) else store.afterFrame(id)
 
+    fun clipFile(id: String) = store.clipFile(id)
+
     fun openDetail(id: String) {
         detailId.value = id
     }

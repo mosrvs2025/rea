@@ -32,6 +32,11 @@ class LibraryStore(private val context: Context) {
 
     fun beforeFrame(id: String) = File(frames, "$id-before.jpg")
     fun afterFrame(id: String) = File(frames, "$id-after.jpg")
+    fun clipFile(id: String) = File(frames, "$id-original.mp4")
+
+    private fun deleteFiles(id: String) {
+        beforeFrame(id).delete(); afterFrame(id).delete(); clipFile(id).delete()
+    }
 
     suspend fun add(entry: LibraryEntry) {
         _entries.update { listOf(entry) + it }
@@ -48,7 +53,7 @@ class LibraryStore(private val context: Context) {
             if (!deleted) return false
         }
         _entries.update { list -> list.filterNot { it.id == id } }
-        withContext(Dispatchers.IO) { beforeFrame(id).delete(); afterFrame(id).delete() }
+        withContext(Dispatchers.IO) { deleteFiles(id) }
         persist()
         return true
     }
@@ -58,7 +63,7 @@ class LibraryStore(private val context: Context) {
         val gone = withContext(Dispatchers.IO) { _entries.value.filterNot { exists(Uri.parse(it.outputUri)) }.map { it.id } }
         if (gone.isEmpty()) return
         _entries.update { list -> list.filterNot { it.id in gone } }
-        withContext(Dispatchers.IO) { gone.forEach { beforeFrame(it).delete(); afterFrame(it).delete() } }
+        withContext(Dispatchers.IO) { gone.forEach(::deleteFiles) }
         persist()
     }
 
@@ -70,6 +75,13 @@ class LibraryStore(private val context: Context) {
         write(before, beforeFrame(id))
         write(after, afterFrame(id))
         true
+    }
+
+    /** Saves a short lossless copy of the original so it can be played beside the result later. Returns its start in ms, or -1. */
+    suspend fun saveClip(id: String, original: Uri, durationMs: Long): Long = withContext(Dispatchers.IO) {
+        val startUs = ClipExtractor.extract(context, original, clipFile(id), ClipExtractor.targetStartUs(durationMs))
+        if (startUs == null) clipFile(id).delete()
+        startUs?.let { it / 1000 } ?: -1L
     }
 
     fun loadFrame(file: File): Bitmap? = runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
@@ -110,12 +122,12 @@ class LibraryStore(private val context: Context) {
     private fun LibraryEntry.toJson() = JSONObject()
         .put("id", id).put("at", createdAt).put("name", name).put("uri", outputUri)
         .put("before", before.toJson()).put("after", after.toJson())
-        .put("encodeMs", encodeMs).put("planned", plannedBytes).put("label", label).put("frames", hasFrames)
+        .put("encodeMs", encodeMs).put("planned", plannedBytes).put("label", label).put("frames", hasFrames).put("clipStart", clipStartMs)
 
     private fun JSONObject.toEntry() = LibraryEntry(
         id = getString("id"), createdAt = getLong("at"), name = getString("name"), outputUri = getString("uri"),
         before = getJSONObject("before").toSource(), after = getJSONObject("after").toSource(),
-        encodeMs = getLong("encodeMs"), plannedBytes = getLong("planned"), label = getString("label"), hasFrames = getBoolean("frames"),
+        encodeMs = getLong("encodeMs"), plannedBytes = getLong("planned"), label = getString("label"), hasFrames = getBoolean("frames"), clipStartMs = optLong("clipStart", -1),
     )
 
     private fun Source.toJson() = JSONObject()

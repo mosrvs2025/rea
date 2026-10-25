@@ -175,6 +175,7 @@ fun DetailScreen(
     entry: LibraryEntry,
     beforeFile: File,
     afterFile: File,
+    clipFile: File,
     onBack: () -> Unit,
     onRemove: suspend (deleteFile: Boolean) -> Boolean,
 ) {
@@ -183,8 +184,6 @@ fun DetailScreen(
     val scope = rememberCoroutineScope()
     var confirm by remember { mutableStateOf(false) }
     val uri = Uri.parse(entry.outputUri)
-    val before = rememberFrame(beforeFile, entry.hasFrames)
-    val after = rememberFrame(afterFile, entry.hasFrames)
 
     Scaffold(
         topBar = {
@@ -208,16 +207,7 @@ fun DetailScreen(
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item {
-                if (before != null && after != null) {
-                    CompareSlider(before, after, Modifier.fillMaxWidth())
-                    Text(
-                        "Drag to compare the same moment, before and after.",
-                        Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            item { CompareBlock(entry, beforeFile, afterFile, clipFile, Modifier.fillMaxWidth()) }
             item { SavingsHero(entry) }
             item { StatsTable(entry) }
             item { EncodeStats(entry) }
@@ -428,4 +418,23 @@ private fun codecName(mime: String) = when (mime.lowercase()) {
     "video/x-vnd.on2.vp8" -> "VP8"
     "video/mp4v-es" -> "MPEG-4"
     else -> mime.substringAfter('/').uppercase().ifBlank { "?" }
+}
+
+/** Live synced playback when the original clip was saved, otherwise the still-frame slider, otherwise nothing. */
+@Composable
+fun CompareBlock(entry: LibraryEntry, beforeFile: File, afterFile: File, clipFile: File, modifier: Modifier = Modifier) {
+    val before = rememberFrame(beforeFile, entry.hasFrames)
+    val after = rememberFrame(afterFile, entry.hasFrames)
+    val aspect = (entry.after.width.toFloat() / max(entry.after.height, 1)).coerceIn(0.4f, 2.5f)
+    when {
+        entry.hasClip && clipFile.exists() -> LiveCompare(clipFile, Uri.parse(entry.outputUri), entry.clipStartMs, aspect, before, after, modifier)
+        before != null && after != null -> Column(modifier) {
+            CompareSlider(before, after, Modifier.fillMaxWidth())
+            Text(
+                "Drag to compare the same moment, before and after.",
+                Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }

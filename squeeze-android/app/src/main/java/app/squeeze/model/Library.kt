@@ -13,7 +13,11 @@ data class LibraryEntry(
     /** Human-readable settings used, e.g. "Small · HEVC". */
     val label: String,
     val hasFrames: Boolean,
+    /** Where the saved original clip starts on the video's timeline, or -1 when no clip was saved. */
+    val clipStartMs: Long = -1,
 ) {
+    val hasClip: Boolean get() = clipStartMs >= 0
+
     val savedBytes: Long get() = (before.sizeBytes - after.sizeBytes).coerceAtLeast(0)
 }
 

@@ -11,7 +11,8 @@ This is an independent app in this repository's `squeeze-android/` directory. It
 - Live estimate of the result before you start. Compression runs in a foreground service, so you can leave the app.
 - Results are saved to `Movies/Squeeze`. Originals are never modified.
 - **Library** tab keeps every finished video with total space saved. Entries disappear if the video is deleted elsewhere.
-- **Before/after** drag slider compares the same frame from the original and the result.
+- **Live before/after:** the original and the result play in sync with a draggable reveal. A lossless ~4 second clip of the original is stream-copied into app storage when compression finishes, so this works after the source is gone. Clips are removed with their library entry. If a clip cannot be saved (unsupported container), a still-frame slider is used instead.
+- **Finish screen:** animated count-up of space saved, confetti, haptic tap, and everyday-scale facts derived from the measured sizes.
 - **Nerd stats** compare measured resolution, frame rate, codec, bitrates, bits per pixel, plus encode time, speed, compression ratio and estimate accuracy.
 
 ## How the compression works
