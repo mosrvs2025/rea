@@ -66,6 +66,8 @@ import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppDetail
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.model.Explainer
+import app.ultimate.pluck.model.SdkKnowledge
 import java.text.DateFormat
 import java.util.Date
 
@@ -119,7 +121,7 @@ fun DetailScreen(vm: PluckController, onExtract: (List<AppItem>) -> Unit) {
                 item { SignatureCard(d) }
                 item { PermissionsCard(d) }
                 if (item.isSplit) item { SplitsCard(d) }
-                item { TrackersCard(vm, item) }
+                item { TrackersCard(vm, item, d) }
             }
         }
     }
@@ -251,27 +253,80 @@ private fun SplitsCard(d: AppDetail) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TrackersCard(vm: PluckController, item: AppItem) {
-    val scans by vm.scans.collectAsStateWithLifecycle()
-    val record = scans[item.packageName]?.takeIf { it.versionCode == item.versionCode && it.updateTime == item.updateTime }
+private fun TrackersCard(vm: PluckController, item: AppItem, detail: AppDetail) {
+    val trackers by vm.trackers.collectAsStateWithLifecycle()
+    val facts = trackers[item.packageName]
     val catalog = TrackerScanner.catalog.associateBy { it.name }
+    val role = { n: String -> SdkKnowledge.info(n)?.role }
+    val exposures = Explainer.exposures(detail.permissions)
+
     Section("Ads & trackers") {
-        if (record == null) {
-            FilledTonalButton({ vm.scanOne(item) }) { Text("Scan this app") }
-        } else if (record.sdks.isEmpty()) {
-            Text("No known ad, analytics or crash-reporting SDKs found.", style = MaterialTheme.typography.bodyMedium)
-        } else {
-            SdkKind.entries.forEach { kind ->
-                val names = record.sdks.filter { catalog[it]?.kind == kind }
-                if (names.isNotEmpty()) {
-                    Text(kind.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { names.forEach { SuggestionChip({}, { Text(it) }) } }
+        when {
+            facts == null -> {
+                Text("Look inside this app's code for known ad, analytics and crash-reporting SDKs.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FilledTonalButton({ vm.scanOne(item) }) { Text("Scan this app") }
+            }
+            facts.sdks.isEmpty() -> Text("No known ad, analytics or crash-reporting SDKs found.", style = MaterialTheme.typography.bodyMedium)
+            else -> {
+                val ads = facts.sdks.filter { catalog[it]?.kind == SdkKind.Ads }
+                val others = facts.sdks - ads.toSet()
+                Text(
+                    "${ads.size} ad SDK${if (ads.size == 1) "" else "s"} · ${others.size} analytics or crash",
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    color = if (ads.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                )
+
+                // The story: why this many.
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Why so many?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        if (facts.mediation == null) {
+                            Text("This result is from an older scan that did not look for mediation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            androidx.compose.material3.TextButton({ vm.rescan(item) }) { Text("Analyze again") }
+                        } else {
+                            Explainer.why(ads, others, facts.mediation, role).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        }
+                    }
+                }
+
+                SdkKind.entries.forEach { kind ->
+                    val names = facts.sdks.filter { catalog[it]?.kind == kind }
+                    if (names.isNotEmpty()) {
+                        Text(kind.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            names.forEach { name -> SuggestionChip({ vm.explainSdk(name) }, { Text(name) }) }
+                        }
+                    }
+                }
+                Text("Tap any SDK to see what it is and what it collects.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                if (exposures.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text("What these SDKs can reach", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "SDKs run inside the app with the app's own permissions. These are the ones that matter most for ads and tracking.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    exposures.forEach { e ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(
+                                if (e.granted) "Allowed" else "Requested",
+                                Modifier.width(76.dp).padding(top = 2.dp), style = MaterialTheme.typography.labelSmall,
+                                color = if (e.granted && e.sensitive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (e.granted) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(e.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                Text(e.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
         }
         Text(
             "Found by searching the app's code for known SDK names. Renamed SDKs can be missed, and a match shows the code is present, not in use.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline,
         )
         androidx.compose.material3.TextButton({ vm.closeDetail(); vm.openPage(Page.Trackers) }) { Text("Compare with all your apps") }
     }

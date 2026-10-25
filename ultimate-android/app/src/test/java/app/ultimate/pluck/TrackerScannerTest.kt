@@ -1,5 +1,6 @@
 package app.ultimate.pluck
 
+import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppSource
 import app.ultimate.pluck.model.arrange
@@ -149,5 +150,122 @@ class ReplacementsTest {
             assertTrue(it.toolId in setOf("squeeze", "audio", "pluck"))
             assertTrue(it.originalPackage !in app.ultimate.pluck.model.Replacements.ours)
         }
+    }
+}
+
+class MediationTest {
+    private fun dex(vararg descriptors: String) = descriptors.joinToString("\u0000") { "L$it;" }.toByteArray(Charsets.US_ASCII)
+
+    private fun mediation(vararg d: String): List<app.ultimate.pluck.model.Mediation> {
+        val raw = TrackerScanner.Raw()
+        raw.add(dex(*d))
+        return raw.mediation()
+    }
+
+    @Test fun readsNetworksFromAppLovinMaxAdapters() {
+        val m = mediation(
+            "com/applovin/mediation/adapters/GoogleMediationAdapter", "com/applovin/mediation/adapters/FacebookMediationAdapter",
+            "com/applovin/mediation/adapters/GoogleMediationAdapter\$Listener", // an inner class must not count as a network
+            "com/applovin/mediation/adapters/AppLovinAdapterInterstitialListener", // a listener, not an adapter
+            "com/applovin/mediation/ads/MaxInterstitialAd",
+        ).single()
+        assertEquals("AppLovin MAX", m.mediator)
+        assertEquals(listOf("Google AdMob", "Meta Audience Network"), m.networks)
+        assertTrue(m.usedByApp)
+    }
+
+    @Test fun adapterCodeAloneIsNotReportedAsUsed() {
+        val m = mediation("com/applovin/mediation/adapters/UnityAdsMediationAdapter").single()
+        assertTrue(!m.usedByApp)
+        assertEquals(listOf("Unity Ads"), m.networks)
+    }
+
+    @Test fun admobMediationIgnoresAdmobItself() {
+        val m = mediation("com/google/ads/mediation/admob/AdMobAdapter", "com/google/ads/mediation/vungle/VungleMediationAdapter", "com/google/ads/mediation/pangle/PangleMediationAdapter").single()
+        assertEquals("AdMob mediation", m.mediator)
+        assertEquals(listOf("Liftoff / Vungle", "Pangle"), m.networks)
+    }
+
+    @Test fun plainAdmobWithNoAdaptersHasNoMediation() {
+        assertTrue(mediation("com/google/ads/mediation/admob/AdMobAdapter", "com/google/android/gms/ads/AdView").isEmpty())
+    }
+
+    @Test fun levelPlayIsDetected() {
+        val m = mediation("com/ironsource/mediationsdk/IronSource", "com/ironsource/adapters/admob/AdMobAdapter").single()
+        assertEquals("ironSource LevelPlay", m.mediator)
+        assertEquals(listOf("Google AdMob"), m.networks)
+        assertTrue(m.usedByApp)
+    }
+
+    @Test fun mediationRoundTripsThroughStorage() {
+        val m = app.ultimate.pluck.model.Mediation("AppLovin MAX", listOf("Google AdMob", "Meta Audience Network"), true)
+        assertEquals(m, app.ultimate.pluck.model.Mediation.decode(m.encode()))
+        assertEquals(app.ultimate.pluck.model.Mediation("X", emptyList(), false), app.ultimate.pluck.model.Mediation.decode(app.ultimate.pluck.model.Mediation("X", emptyList(), false).encode()))
+    }
+
+    @Test fun everyScannedSdkHasAnExplanation() {
+        val missing = TrackerScanner.catalog.filter { app.ultimate.pluck.model.SdkKnowledge.info(it.name) == null }.map { it.name }
+        assertTrue("no explanation for $missing", missing.isEmpty())
+        TrackerScanner.catalog.forEach {
+            val info = app.ultimate.pluck.model.SdkKnowledge.info(it.name)!!
+            assertTrue(it.name, info.what.isNotBlank() && info.collects.isNotBlank() && info.why.isNotBlank())
+        }
+    }
+
+    @Test fun sdkRoleAgreesWithCatalogKind() {
+        TrackerScanner.catalog.forEach {
+            val role = app.ultimate.pluck.model.SdkKnowledge.info(it.name)!!.role
+            val expected = when (it.kind) {
+                SdkKind.Ads -> setOf(app.ultimate.pluck.model.SdkRole.AdNetwork, app.ultimate.pluck.model.SdkRole.NetworkAndMediator)
+                SdkKind.Analytics -> setOf(app.ultimate.pluck.model.SdkRole.Analytics, app.ultimate.pluck.model.SdkRole.Attribution)
+                SdkKind.Crash -> setOf(app.ultimate.pluck.model.SdkRole.Crash)
+            }
+            assertTrue("${it.name} is ${it.kind} but explained as $role", role in expected)
+        }
+    }
+
+    @Test fun whyStoryNamesTheMediatorAndAllowsForUnusedAdapters() {
+        val kind = { n: String -> app.ultimate.pluck.model.SdkKnowledge.info(n)?.role }
+        val used = app.ultimate.pluck.model.Explainer.why(
+            List(15) { "Ad$it" }, listOf("Firebase Analytics", "Firebase Crashlytics"),
+            listOf(app.ultimate.pluck.model.Mediation("AppLovin MAX", listOf("Google AdMob"), true)), kind,
+        ).joinToString(" ")
+        assertTrue(used.contains("AppLovin MAX") && used.contains("15 ad SDKs") && used.contains("calls AppLovin MAX directly"))
+        val bundled = app.ultimate.pluck.model.Explainer.why(
+            List(4) { "Ad$it" }, emptyList(), listOf(app.ultimate.pluck.model.Mediation("AdMob mediation", listOf("Pangle"), false)), kind,
+        ).joinToString(" ")
+        assertTrue(bundled.contains("bundled by a library"))
+        val none = app.ultimate.pluck.model.Explainer.why(emptyList(), emptyList(), null, kind).single()
+        assertTrue(none.contains("No ad networks"))
+        val unknown = app.ultimate.pluck.model.Explainer.why(List(5) { "Ad$it" }, emptyList(), emptyList(), kind).joinToString(" ")
+        assertTrue(unknown.contains("no mediation layer was found"))
+    }
+
+    @Test fun whyLeadsWithTheMediatorTheAppActuallyCalls() {
+        val kind = { n: String -> app.ultimate.pluck.model.SdkKnowledge.info(n)?.role }
+        val story = app.ultimate.pluck.model.Explainer.why(
+            List(6) { "Ad$it" }, emptyList(),
+            listOf(
+                app.ultimate.pluck.model.Mediation("AdMob mediation", listOf("Liftoff / Vungle"), false),
+                app.ultimate.pluck.model.Mediation("AppLovin MAX", listOf("Google AdMob"), true),
+                app.ultimate.pluck.model.Mediation("ironSource LevelPlay", emptyList(), true),
+            ),
+            kind,
+        )
+        assertTrue(story.first().startsWith("AppLovin MAX"))
+        val also = story.first { it.startsWith("Also present") }
+        assertTrue(also.contains("AdMob mediation (adapter code only") && also.contains("ironSource LevelPlay (called by the app)"))
+        assertTrue(story.none { it.startsWith("Networks wired into it") && it.contains("Vungle") })
+    }
+
+    @Test fun exposureListsOnlyRequestedPermissionsAndKeepsGrantState() {
+        val perms = listOf(
+            app.ultimate.pluck.model.Permission("com.google.android.gms.permission.AD_ID", true, false),
+            app.ultimate.pluck.model.Permission("android.permission.ACCESS_COARSE_LOCATION", false, true),
+            app.ultimate.pluck.model.Permission("android.permission.CAMERA", true, true),
+        )
+        val e = app.ultimate.pluck.model.Explainer.exposures(perms)
+        assertEquals(listOf("Advertising ID", "Approximate location"), e.map { it.label })
+        assertEquals(listOf(true, false), e.map { it.granted })
     }
 }

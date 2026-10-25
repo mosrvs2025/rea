@@ -82,7 +82,8 @@ class HistoryStore(private val context: Context) {
 
 /** Caches ad/tracker scan results per app version so each app is scanned at most once per update. */
 class ScanStore(context: Context) {
-    data class Record(val versionCode: Long, val updateTime: Long, val sdks: List<String>)
+    /** [mediation] is null for results saved before mediation was analysed; such apps are re-scanned when next needed. */
+    data class Record(val versionCode: Long, val updateTime: Long, val sdks: List<String>, val mediation: List<String>? = null)
 
     private val json = JsonFile(File(context.filesDir, "scans.json"))
     private val _results = MutableStateFlow(load())
@@ -97,7 +98,10 @@ class ScanStore(context: Context) {
 
     suspend fun flush() = json.write(JSONArray().apply {
         _results.value.forEach { (pkg, r) ->
-            put(JSONObject().put("pkg", pkg).put("v", r.versionCode).put("t", r.updateTime).put("sdks", JSONArray(r.sdks)))
+            put(
+                JSONObject().put("pkg", pkg).put("v", r.versionCode).put("t", r.updateTime).put("sdks", JSONArray(r.sdks))
+                    .apply { r.mediation?.let { put("med", JSONArray(it)) } },
+            )
         }
     })
 
@@ -107,7 +111,11 @@ class ScanStore(context: Context) {
             runCatching {
                 val o = a.getJSONObject(it)
                 val sdks = o.getJSONArray("sdks")
-                o.getString("pkg") to Record(o.getLong("v"), o.getLong("t"), (0 until sdks.length()).map { i -> sdks.getString(i) })
+                val med = o.optJSONArray("med")
+                o.getString("pkg") to Record(
+                    o.getLong("v"), o.getLong("t"), (0 until sdks.length()).map { i -> sdks.getString(i) },
+                    med?.let { m -> (0 until m.length()).map { i -> m.getString(i) } },
+                )
             }.getOrNull()
         }.toMap()
     }

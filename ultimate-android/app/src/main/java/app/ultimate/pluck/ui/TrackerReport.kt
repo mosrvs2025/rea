@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Card
@@ -82,7 +83,8 @@ fun TrackerReport(c: PluckController, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(ReportSort.Most) }
     var kind by rememberSaveable { mutableStateOf<SdkKind?>(null) }
-    var sdk by rememberSaveable { mutableStateOf<String?>(null) }
+    val requested by c.reportSdk.collectAsStateWithLifecycle()
+    var sdk by rememberSaveable(requested) { mutableStateOf(requested) }
     var includeClean by rememberSaveable { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
 
@@ -197,7 +199,7 @@ fun TrackerReport(c: PluckController, onBack: () -> Unit) {
                                     val ad = catalog[name]?.kind == SdkKind.Ads
                                     Text(
                                         name,
-                                        Modifier.clip(RoundedCornerShape(6.dp))
+                                        Modifier.clip(RoundedCornerShape(6.dp)).clickable { c.explainSdk(name) }
                                             .background((if (ad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline).copy(alpha = 0.12f))
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                         style = MaterialTheme.typography.labelSmall,
@@ -233,7 +235,7 @@ fun TrackerReport(c: PluckController, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.width(12.dp))
                         Text("$count app${if (count == 1) "" else "s"}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelLarge)
-                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
+                        IconButton({ c.explainSdk(name) }) { Icon(Icons.Rounded.Info, "What is $name?", tint = MaterialTheme.colorScheme.primary) }
                     }
                 }
             }

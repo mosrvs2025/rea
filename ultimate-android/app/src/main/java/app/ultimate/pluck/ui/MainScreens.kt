@@ -131,6 +131,9 @@ fun PluckScreen(c: PluckController, onExit: () -> Unit) {
         else -> MainScreen(c, onExtract, onExit)
     }
 
+    val sdkName by c.sdkSheet.collectAsStateWithLifecycle()
+    sdkName?.let { SdkSheet(it, c) }
+
     sheetFor?.let { items ->
         ExtractSheet(
             items, c, onDismiss = { sheetFor = null },

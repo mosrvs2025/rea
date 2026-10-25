@@ -64,7 +64,7 @@ data class ListOptions(
 )
 
 /** Tracker facts for one app, when it has been scanned. */
-data class TrackerFacts(val sdks: List<String>, val adSdks: Int)
+data class TrackerFacts(val sdks: List<String>, val adSdks: Int, val mediation: List<Mediation>? = null)
 
 fun List<AppItem>.arrange(query: String, o: ListOptions, trackers: Map<String, TrackerFacts>, replaced: Set<String> = emptySet()): List<AppItem> {
     val shown = filter { a ->

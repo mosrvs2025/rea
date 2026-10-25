@@ -11,6 +11,7 @@ import app.ultimate.pluck.engine.Extractor
 import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.model.Cleanup
 import app.ultimate.pluck.model.Filter
+import app.ultimate.pluck.model.Mediation
 import app.ultimate.pluck.model.Replacements
 import app.ultimate.pluck.model.ListOptions
 import app.ultimate.pluck.model.QuickFilter
@@ -68,7 +69,9 @@ class PluckController(private val app: UltimateApp) {
         val kinds = TrackerScanner.catalog.associate { it.name to it.kind }
         all.mapNotNull { a ->
             records[a.packageName]?.takeIf { it.versionCode == a.versionCode && it.updateTime == a.updateTime }
-                ?.let { r -> a.packageName to TrackerFacts(r.sdks, r.sdks.count { kinds[it] == SdkKind.Ads }) }
+                ?.let { r ->
+                    a.packageName to TrackerFacts(r.sdks, r.sdks.count { kinds[it] == SdkKind.Ads }, r.mediation?.mapNotNull(Mediation::decode))
+                }
         }.toMap()
     }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -149,6 +152,21 @@ class PluckController(private val app: UltimateApp) {
         page.value = Page.Main
     }
 
+    /** The SDK whose explainer sheet is open, from any screen. */
+    val sdkSheet = MutableStateFlow<String?>(null)
+    fun explainSdk(name: String?) {
+        sdkSheet.value = name
+    }
+
+    /** Which SDK the tracker report should be filtered to when it opens. */
+    val reportSdk = MutableStateFlow<String?>(null)
+    fun openReport(sdk: String?) {
+        reportSdk.value = sdk
+        sdkSheet.value = null
+        detailPackage.value = null
+        page.value = Page.Trackers
+    }
+
     fun openPage(p: Page) {
         page.value = p
     }
@@ -163,6 +181,15 @@ class PluckController(private val app: UltimateApp) {
 
     suspend fun refreshSaved() = app.pluckHistory.refresh()
     suspend fun removeSaved(id: String, deleteFile: Boolean) = app.pluckHistory.remove(id, deleteFile)
+
+    /** Scans one app again even if a result exists, e.g. to add the mediation analysis to an older result. */
+    fun rescan(item: AppItem) {
+        scope.launch {
+            val analysis = withContext(Dispatchers.IO) { TrackerScanner.analyze(item.apkPaths) }
+            app.pluckScans.put(item.packageName, ScanStore.Record(item.versionCode, item.updateTime, analysis.sdks.map { it.name }, analysis.mediation.map { it.encode() }))
+            app.pluckScans.flush()
+        }
+    }
 
     /** Scans one app, reusing a cached result for the same version. */
     fun scanOne(item: AppItem) {
@@ -195,8 +222,9 @@ class PluckController(private val app: UltimateApp) {
     }
 
     private suspend fun scanCached(item: AppItem, store: ScanStore) {
-        if (store.cached(item.packageName, item.versionCode, item.updateTime) != null) return
-        val sdks = withContext(Dispatchers.IO) { TrackerScanner.scan(item.apkPaths) }
-        store.put(item.packageName, ScanStore.Record(item.versionCode, item.updateTime, sdks.map { it.name }))
+        // A result without mediation info predates that analysis, so it is redone once.
+        if (store.cached(item.packageName, item.versionCode, item.updateTime)?.mediation != null) return
+        val analysis = withContext(Dispatchers.IO) { TrackerScanner.analyze(item.apkPaths) }
+        store.put(item.packageName, ScanStore.Record(item.versionCode, item.updateTime, analysis.sdks.map { it.name }, analysis.mediation.map { it.encode() }))
     }
 }
