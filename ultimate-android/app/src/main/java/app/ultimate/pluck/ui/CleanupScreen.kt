@@ -139,6 +139,7 @@ fun CleanupScreen(c: PluckController, onBack: () -> Unit, onExtract: (List<AppIt
 @Composable
 private fun CleanupRow(item: Cleanup, c: PluckController) {
     val context = LocalContext.current
+    val marks by c.marks.collectAsStateWithLifecycle()
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -168,7 +169,7 @@ private fun CleanupRow(item: Cleanup, c: PluckController) {
             } else if (item.replacement.note != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(item.replacement.note, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.replacement.originalPackage in c.marks.value.custom) TextButton({ c.unmarkReplaced(item.app.packageName) }) { Text("Unmark") }
+                    if (item.replacement.originalPackage in marks.custom) TextButton({ c.unmarkReplaced(item.app.packageName) }) { Text("Unmark") }
                 }
             }
         }
