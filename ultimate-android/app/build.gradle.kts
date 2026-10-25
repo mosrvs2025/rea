@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -30,6 +30,7 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "true")
             buildConfigField("boolean", "HAS_SOUND", "true")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
+            buildConfigField("boolean", "HAS_STUDIO", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -41,6 +42,18 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "true")
             buildConfigField("boolean", "HAS_SOUND", "true")
             buildConfigField("boolean", "HAS_TRAFFIC", "true")
+            buildConfigField("boolean", "HAS_STUDIO", "true")
+        }
+        create("studio") {
+            dimension = "edition"
+            applicationId = "app.ultimate.studio"
+            resValue("string", "app_name", "Studio")
+            buildConfigField("boolean", "HAS_SQUEEZE", "false")
+            buildConfigField("boolean", "HAS_AUDIO", "false")
+            buildConfigField("boolean", "HAS_PLUCK", "false")
+            buildConfigField("boolean", "HAS_SOUND", "false")
+            buildConfigField("boolean", "HAS_TRAFFIC", "false")
+            buildConfigField("boolean", "HAS_STUDIO", "true")
         }
         create("traffic") {
             dimension = "edition"
@@ -51,6 +64,7 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "false")
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "true")
+            buildConfigField("boolean", "HAS_STUDIO", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -61,6 +75,7 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "false")
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
+            buildConfigField("boolean", "HAS_STUDIO", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -71,6 +86,7 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "false")
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
+            buildConfigField("boolean", "HAS_STUDIO", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -81,6 +97,7 @@ android {
             buildConfigField("boolean", "HAS_PLUCK", "true")
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
+            buildConfigField("boolean", "HAS_STUDIO", "false")
         }
     }
 
@@ -123,9 +140,11 @@ dependencies {
     implementation("androidx.media3:media3-effect:$media3")
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
 
     // Pure-Java port of the LAME MP3 encoder (LGPL 2.1+). See app/src/main/java/javax/sound for the Android shim it needs.
     implementation("de.sciss:jump3r:1.0.5")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
