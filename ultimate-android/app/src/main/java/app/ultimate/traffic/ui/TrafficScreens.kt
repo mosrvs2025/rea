@@ -9,6 +9,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -188,12 +189,22 @@ private fun SetupScreen(c: TrafficController, onExit: () -> Unit, error: String?
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (withAds.isNotEmpty()) FilterChip(false, { c.select(withAds.filter { p -> apps.any { it.pkg == p } }) }, { Text("Add apps with ad SDKs (${withAds.count { p -> apps.any { it.pkg == p } }})") })
-                    if (selected.isNotEmpty()) FilterChip(false, c::clearSelection, { Text("Clear ${selected.size} selected") })
                 }
-                OutlinedTextField(
-                    value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true,
-                    placeholder = { Text("Search apps") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") } }, shape = RoundedCornerShape(28.dp),
+                val allShownSelected = shown.isNotEmpty() && shown.all { it.pkg in selected }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f), singleLine = true,
+                        placeholder = { Text("Search apps") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") } }, shape = RoundedCornerShape(28.dp),
+                    )
+                    TextButton(
+                        { if (allShownSelected) c.deselect(shown.map { it.pkg }) else c.select(shown.map { it.pkg }) },
+                        enabled = shown.isNotEmpty(),
+                    ) { Text(if (allShownSelected) "Deselect all" else "Select all") }
+                }
+                Text(
+                    if (selected.isEmpty()) "No apps selected" else "${selected.size} selected" + if (query.isNotEmpty()) " · buttons act on the ${shown.size} shown" else "",
+                    Modifier.padding(start = 4.dp, top = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             items(shown, key = { it.pkg }) { a ->
@@ -263,6 +274,7 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                     }
                 }
             }
+            item { LiveStatus(captured.size, snap, Modifier.padding(horizontal = 16.dp)) }
             item {
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Stat("Sent", snap.up, Modifier.weight(1f))
@@ -285,7 +297,35 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                 }
                 else -> item { Box(Modifier.padding(horizontal = 16.dp)) { Terminal(lines, live = true, title = "traffic.log", startExpanded = true) } }
             }
-            if (tab == 0 && snap.hosts.isEmpty()) item { Text("Waiting for the apps to talk. Open one of them now.", Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+/** Says what the numbers mean right now, so zeros read as "nothing yet" rather than "broken". */
+@Composable
+private fun LiveStatus(apps: Int, snap: TrafficSnapshot, modifier: Modifier) {
+    val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "listen").animateFloat(
+        0.3f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "pulse",
+    )
+    val waiting = snap.flows.isEmpty()
+    val tint = if (waiting) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = 0.10f)).padding(14.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.padding(top = 5.dp).size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(tint.copy(alpha = if (waiting) pulse else 1f)))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(if (waiting) "Listening…" else "Live", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = tint)
+            Text(
+                if (waiting) {
+                    "Waiting for the $apps selected app${if (apps == 1) "" else "s"} to make network requests. Switch to ${if (apps == 1) "it" else "them"} and use ${if (apps == 1) "it" else "them"} " +
+                        "while Traffic Inspector runs in the background. Zeros here mean nothing has connected yet."
+                } else {
+                    "${snap.flows.size} connection${if (snap.flows.size == 1) "" else "s"} seen · ${snap.openFlows} open now. Only the selected apps are counted."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

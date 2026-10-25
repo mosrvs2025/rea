@@ -16,6 +16,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
+import app.ultimate.core.RecentResults
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -106,7 +108,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
-fun SqueezeScreen(c: SqueezeController, onExit: () -> Unit, launch: ToolLaunch) {
+fun SqueezeScreen(c: SqueezeController, onExit: () -> Unit, launch: ToolLaunch, tool: app.ultimate.core.Tool) {
     val queue by c.queue.collectAsStateWithLifecycle()
     val entries by c.entries.collectAsStateWithLifecycle()
     val probing by c.isProbing.collectAsStateWithLifecycle()
@@ -136,47 +138,53 @@ fun SqueezeScreen(c: SqueezeController, onExit: () -> Unit, launch: ToolLaunch) 
             entries = entries, probing = probing, settings = settings, hevc = c.capabilities.hevc, av1 = c.capabilities.av1,
             onChange = c::update, onAdd = onPick, onRemove = c::remove, onBack = c::clear, onStart = { withConsent { c.start() } },
         )
-        else -> HomeScreen(onPick, onExit)
+        else -> HomeScreen(tool, onPick, onExit, onOpen = { c.openDetail(it.id) })
     }
 }
 
 // ───────────────────────────── Home ─────────────────────────────
 
 @Composable
-private fun HomeScreen(onPick: () -> Unit, onExit: () -> Unit) {
+private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onExit: () -> Unit, onOpen: (app.ultimate.core.LibraryItem) -> Unit) {
     BackHandler(onBack = onExit)
+    val recents by tool.library.collectAsStateWithLifecycle()
     Scaffold(topBar = { BackBar(onExit) }) { pad ->
         Column(
-            Modifier.fillMaxSize().padding(pad).padding(horizontal = 28.dp),
-            verticalArrangement = Arrangement.Center,
+            Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                Modifier.size(104.dp).clip(RoundedCornerShape(32.dp)).background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Rounded.Compress, null, Modifier.size(52.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            if (recents.isEmpty()) Spacer(Modifier.height(72.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier.size(64.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Rounded.Compress, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text("Squeeze", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Shrink videos to a fraction of the size.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Spacer(Modifier.height(28.dp))
-            Text("Squeeze", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Shrink videos to a fraction of the size.\nNothing ever leaves your phone.",
-                style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(40.dp))
-            Button(onClick = onPick, Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(20.dp)) {
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onPick, Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) {
                 Icon(Icons.Rounded.Add, null)
                 Spacer(Modifier.width(10.dp))
                 Text("Choose videos", style = MaterialTheme.typography.titleMedium)
             }
-            Spacer(Modifier.height(36.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                Fact(Icons.Rounded.Block, "No ads")
-                Fact(Icons.Rounded.CloudOff, "Works offline")
-                Fact(Icons.Rounded.VisibilityOff, "No tracking")
+            Spacer(Modifier.height(20.dp))
+            if (recents.isEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Fact(Icons.Rounded.Block, "No ads")
+                    Fact(Icons.Rounded.CloudOff, "Works offline")
+                    Fact(Icons.Rounded.VisibilityOff, "No tracking")
+                }
+            } else {
+                RecentResults(tool, "Recent squeezes", onOpenOwn = onOpen, limit = 6)
             }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

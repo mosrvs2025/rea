@@ -59,5 +59,5 @@ class AudioTool(private val app: UltimateApp) : Tool {
     override suspend fun refresh() = store.refresh()
 
     @Composable
-    override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = AudioScreen(remember { controller }, onExit, launch)
+    override fun Screen(onExit: () -> Unit, launch: ToolLaunch) = AudioScreen(remember { controller }, onExit, launch, this)
 }

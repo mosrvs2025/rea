@@ -16,6 +16,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
+import app.ultimate.core.RecentResults
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -97,7 +99,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
-fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch) {
+fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool: app.ultimate.core.Tool) {
     val queue by c.queue.collectAsStateWithLifecycle()
     val picked by c.picked.collectAsStateWithLifecycle()
     val probing by c.probing.collectAsStateWithLifecycle()
@@ -119,38 +121,42 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch) {
             picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onRemove = c::remove, onBack = c::clear,
             onStart = { withConsent { c.start() } },
         )
-        else -> HomeScreen(onPick, onExit)
+        else -> HomeScreen(tool, onPick, onExit)
     }
 }
 
 // ───────────────────────────── Home ─────────────────────────────
 
 @Composable
-private fun HomeScreen(onPick: () -> Unit, onExit: () -> Unit) {
+private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onExit: () -> Unit) {
     BackHandler(onBack = onExit)
     val phase by rememberInfiniteTransition(label = "wave").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "phase")
     val demo = remember(phase) {
         List(40) { i -> (0.25f + 0.65f * kotlin.math.abs(kotlin.math.sin((i / 4.5f) + phase * 6.28f)) * (0.5f + 0.5f * kotlin.math.sin(i / 9f))).coerceIn(0.05f, 1f) }
     }
+    val hasRecents = tool.library.collectAsStateWithLifecycle().value.isNotEmpty()
     Scaffold(topBar = { BackBar(onExit) }) { pad ->
         Column(
-            Modifier.fillMaxSize().padding(pad).padding(horizontal = 28.dp),
-            verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
+            Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Waveform(demo, Modifier.fillMaxWidth().height(96.dp), bars = 40, played = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(28.dp))
-            Text("Video to audio", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
+            if (!hasRecents) Spacer(Modifier.height(48.dp))
+            Waveform(demo, Modifier.fillMaxWidth().height(if (hasRecents) 64.dp else 96.dp), bars = 40, played = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(16.dp))
+            Text("Video to audio", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
                 "Pull the sound out of any video as MP3, M4A or WAV. Trim it first if you only want part.",
-                style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(36.dp))
-            Button(onClick = onPick, Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(20.dp)) {
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onPick, Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)) {
                 Icon(Icons.Rounded.Add, null)
                 Spacer(Modifier.width(10.dp))
                 Text("Choose videos", style = MaterialTheme.typography.titleMedium)
             }
+            Spacer(Modifier.height(20.dp))
+            RecentResults(tool, "Recent conversions", onOpenOwn = {}, limit = 6)
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

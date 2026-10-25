@@ -70,6 +70,11 @@ class TrafficController(private val app: UltimateApp) {
         prefs.edit().putStringSet("selected", selected.value).apply()
     }
 
+    fun deselect(pkgs: Collection<String>) {
+        selected.update { it - pkgs.toSet() }
+        prefs.edit().putStringSet("selected", selected.value).apply()
+    }
+
     fun clearSelection() {
         selected.value = emptySet()
         prefs.edit().putStringSet("selected", emptySet()).apply()

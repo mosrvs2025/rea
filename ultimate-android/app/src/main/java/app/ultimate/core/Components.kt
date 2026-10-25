@@ -22,6 +22,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -169,7 +170,11 @@ val LocalShellNav = androidx.compose.runtime.staticCompositionLocalOf<ShellNav?>
 fun ShellActions() {
     val nav = LocalShellNav.current ?: return
     androidx.compose.material3.IconButton(nav.openActivity) { Icon(androidx.compose.material.icons.Icons.Rounded.Terminal, "Activity") }
-    androidx.compose.material3.IconButton(nav.openLibrary) { Icon(androidx.compose.material.icons.Icons.Rounded.VideoLibrary, "Library") }
+    androidx.compose.material3.TextButton(nav.openLibrary) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.VideoLibrary, null, Modifier.size(20.dp))
+        androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+        androidx.compose.material3.Text("Library")
+    }
 }
 
 /** The tool's own back arrow, unless this build is the tool on its own. */

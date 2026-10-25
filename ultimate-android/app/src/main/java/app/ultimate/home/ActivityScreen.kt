@@ -1,6 +1,7 @@
 package app.ultimate.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +17,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +60,10 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
     val lines by source.log.lines.collectAsStateWithLifecycle()
     val tool = app.tools.firstOrNull { it.id == source.workId }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).let { m -> if (tool != null) m.clickable { app.shell.open(tool) } else m },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center,
@@ -75,7 +81,13 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
                     color = if (snap.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (snap.active) OutlinedButton(source::cancelWork) { Text("Cancel") }
+            if (snap.active) {
+                if (tool != null) FilledTonalButton({ app.shell.open(tool) }) { Text("View live") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(source::cancelWork) { Text("Cancel") }
+            } else if (tool != null) {
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Open ${tool.title}", tint = MaterialTheme.colorScheme.outline)
+            }
         }
         if (snap.active) LinearProgressIndicator(progress = { (snap.percent ?: 0) / 100f }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)))
         if (lines.isNotEmpty()) {

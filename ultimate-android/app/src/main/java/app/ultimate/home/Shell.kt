@@ -26,7 +26,24 @@ class Shell(private val tools: List<Tool>) {
     private var lastTopLevel: Route = Route.Home
 
     fun showHome() = top(Route.Home)
-    fun showLibrary() = top(Route.Library)
+    /** Which tool the Library is filtered to; null shows everything. Lives here so a tool's own shortcut can open it pre-filtered. */
+    private val _libraryFilter = MutableStateFlow<String?>(null)
+    val libraryFilter: StateFlow<String?> = _libraryFilter.asStateFlow()
+
+    fun setLibraryFilter(toolId: String?) {
+        _libraryFilter.value = toolId
+    }
+
+    fun showLibrary() {
+        _libraryFilter.value = null
+        top(Route.Library)
+    }
+
+    /** The Library shortcut inside a tool: that tool's results first. */
+    fun showLibraryForCurrentTool() {
+        _libraryFilter.value = (_route.value as? Route.InTool)?.tool?.id
+        top(Route.Library)
+    }
     fun showActivity() = top(Route.Activity)
 
     private fun top(route: Route) {

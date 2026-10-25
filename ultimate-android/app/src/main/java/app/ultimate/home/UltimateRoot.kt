@@ -41,7 +41,7 @@ fun UltimateRoot(app: UltimateApp) {
     val incoming by shell.incoming.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val standalone = app.tools.size == 1
-    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibrary, openActivity = shell::showActivity) }
+    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity) }
 
     CompositionLocalProvider(LocalShellNav provides nav) {
         if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
@@ -82,7 +82,7 @@ private fun SuiteRoot(app: UltimateApp, route: Route) {
                 bottomBar = {
                     NavigationBar {
                         NavigationBarItem(route == Route.Home, shell::showHome, { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
-                        NavigationBarItem(route == Route.Library, shell::showLibrary, { Icon(Icons.Rounded.VideoLibrary, null) }, label = { Text("Library") })
+                        NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { Icon(Icons.Rounded.VideoLibrary, null) }, label = { Text("Library") })
                         NavigationBarItem(
                             route == Route.Activity, shell::showActivity,
                             { BadgedBox(badge = { if (active) Badge() }) { Icon(Icons.Rounded.Terminal, null) } },

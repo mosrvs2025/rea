@@ -149,7 +149,11 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
         if (tcpFlows.size >= MAX_FLOWS) evictOldest()
         val rec = FlowRecord(nextId.getAndIncrement(), "TCP", ip.src, seg.srcPort, ip.dst, seg.dstPort, System.currentTimeMillis())
         rec.uid = net.owner(Ip4Packet.TCP, ip.src, seg.srcPort, ip.dst, seg.dstPort)
-        ipNames[ip.dst]?.let { rec.host = it; rec.hostSource = "DNS" }
+        if (ip.dst == config.dnsIp) {
+            // Apps that look names up over TCP talk to our stand-in resolver; it is relayed to the real one, so say what it is.
+            rec.host = "DNS lookups (system resolver)"
+            rec.hostSource = "DNS"
+        } else ipNames[ip.dst]?.let { rec.host = it; rec.hostSource = "DNS" }
         records[rec.id] = rec
         if (isBlocked(rec.host)) {
             rec.blocked = true
@@ -187,7 +191,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
         fun start() {
             pool.execute {
                 try {
-                    val s = net.connect(server, serverPort, 10_000)
+                    val s = net.connect(if (server == config.dnsIp) config.upstreamDns else server, serverPort, 10_000)
                     s.tcpNoDelay = true
                     socket = s
                     synchronized(lock) {
