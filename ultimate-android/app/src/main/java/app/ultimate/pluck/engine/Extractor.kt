@@ -1,17 +1,20 @@
 package app.ultimate.pluck.engine
 
-import app.ultimate.core.*
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import app.ultimate.core.JobLog
+import app.ultimate.core.formatBytes
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.model.estimateCompact
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.zip.Deflater
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
@@ -21,19 +24,46 @@ import kotlinx.coroutines.withContext
 
 data class Extracted(val uri: Uri, val displayName: String, val bytes: Long, val splitCount: Int, val sha256: String)
 
+/** How an app's APKs are laid out on disk: bytes Android stores uncompressed versus bytes already compressed. */
+data class ApkComposition(val storedBytes: Long, val compressedBytes: Long) {
+    val estimatedCompact: Long get() = estimateCompact(storedBytes, compressedBytes)
+}
+
 /**
- * Copies an app's APKs into Downloads/Pluck. A single APK is saved as-is; an app with split APKs is saved as one `.apks`
- * archive holding every split, which split installers can read. The SHA-256 is of the base APK as installed.
+ * Copies an app's APKs into Downloads/Pluck.
+ *
+ * - Normal: a single APK is saved as-is; split APKs are bundled into one `.apks` archive for split installers.
+ * - Compact: packed with maximum compression for sending. Android keeps code, native libraries and resources
+ *   uncompressed inside an APK so apps start faster, and the signature covers every byte, so the APK itself cannot
+ *   shrink and still install. Packed, it is roughly half the size; unpacked, it is byte-for-byte the original.
+ *   A single APK becomes a `.zip`; split APKs become a compressed `.apks` that split installers read directly.
+ *
+ * The SHA-256 is of the base APK as installed.
  */
 class Extractor(private val context: Context) {
 
-    suspend fun extract(app: AppItem, onProgress: (done: Long, total: Long) -> Unit): Extracted = withContext(Dispatchers.IO) {
+    suspend fun extract(app: AppItem, compact: Boolean, log: JobLog, onProgress: (done: Long, total: Long) -> Unit): Extracted = withContext(Dispatchers.IO) {
         val bundle = app.isSplit
-        val name = fileName(app) + if (bundle) ".apks" else ".apk"
+        val ext = when {
+            bundle -> ".apks"
+            compact -> ".zip"
+            else -> ".apk"
+        }
+        val name = fileName(app) + ext
+        log.detail("  source  ${app.apkPaths.size} file${if (app.apkPaths.size == 1) "" else "s"} · ${formatBytes(app.apkBytes)}")
+        app.apkPaths.forEach { log.detail("          ${File(it).name.padEnd(28)} ${formatBytes(File(it).length())}") }
+        log.detail("  mode    " + if (compact) "compact (deflate level 9)" else if (bundle) "bundle (stored)" else "copy as-is")
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name)
-            put(MediaStore.Downloads.MIME_TYPE, if (bundle) "application/octet-stream" else "application/vnd.android.package-archive")
+            put(
+                MediaStore.Downloads.MIME_TYPE,
+                when {
+                    bundle -> "application/octet-stream"
+                    compact -> "application/zip"
+                    else -> "application/vnd.android.package-archive"
+                },
+            )
             put(MediaStore.Downloads.RELATIVE_PATH, "Download/Pluck")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -43,12 +73,19 @@ class Extractor(private val context: Context) {
             val digest = MessageDigest.getInstance("SHA-256")
             val progress = Progress(app.apkBytes, onProgress)
             resolver.openOutputStream(uri)?.use { out ->
-                if (bundle) writeBundle(app, out, digest, progress) else copy(File(app.apkPaths.first()), out, digest, progress)
+                when {
+                    bundle || compact -> writeArchive(app, out, if (compact) Deflater.BEST_COMPRESSION else Deflater.NO_COMPRESSION, digest, progress, apkName = name.removeSuffix(ext) + ".apk")
+                    else -> copy(File(app.apkPaths.first()), out, digest, progress)
+                }
             } ?: throw IOException("Could not open the output file")
             values.clear()
             values.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
-            Extracted(uri, displayName(uri) ?: name, outputSize(uri), app.apkPaths.size, AppRepository.hex(digest.digest()))
+            val bytes = outputSize(uri)
+            val sha = AppRepository.hex(digest.digest())
+            log.detail("  sha256  ${sha.take(16)}…${sha.takeLast(8)}")
+            if (compact) log.detail("  packed  ${formatBytes(app.apkBytes)} → ${formatBytes(bytes)} (−${((1 - bytes.toDouble() / app.apkBytes) * 100).toInt().coerceAtLeast(0)}%)")
+            Extracted(uri, displayName(uri) ?: name, bytes, app.apkPaths.size, sha)
         } catch (e: Throwable) {
             // Includes cancellation: never leave a half-written file behind.
             withContext(NonCancellable) { runCatching { resolver.delete(uri, null, null) } }
@@ -56,12 +93,13 @@ class Extractor(private val context: Context) {
         }
     }
 
-    private suspend fun writeBundle(app: AppItem, out: OutputStream, baseDigest: MessageDigest, progress: Progress) {
+    private suspend fun writeArchive(app: AppItem, out: OutputStream, level: Int, baseDigest: MessageDigest, progress: Progress, apkName: String) {
         ZipOutputStream(out).use { zip ->
-            zip.setLevel(Deflater.NO_COMPRESSION) // APKs are already compressed
+            zip.setLevel(level)
             app.apkPaths.forEachIndexed { i, path ->
                 val file = File(path)
-                zip.putNextEntry(ZipEntry(file.name))
+                // A lone APK gets a readable name inside the zip; split APKs keep the names installers expect.
+                zip.putNextEntry(ZipEntry(if (app.isSplit) file.name else apkName))
                 copy(file, zip, if (i == 0) baseDigest else null, progress)
                 zip.closeEntry()
             }
@@ -102,6 +140,22 @@ class Extractor(private val context: Context) {
             val raw = "${app.label}_${app.versionName}".trim()
             val cleaned = raw.map { if (it.isLetterOrDigit() || it in "._-+()") it else '_' }.joinToString("").trim('_', '.')
             return cleaned.ifBlank { app.packageName }.take(120)
+        }
+
+        /** Reads only the zip directories, so it is fast enough to show estimates before extracting. */
+        fun composition(paths: List<String>): ApkComposition {
+            var stored = 0L
+            var compressed = 0L
+            for (path in paths) {
+                runCatching {
+                    ZipFile(path).use { zip ->
+                        for (e in zip.entries()) {
+                            if (e.method == ZipEntry.STORED) stored += e.compressedSize.coerceAtLeast(0) else compressed += e.compressedSize.coerceAtLeast(0)
+                        }
+                    }
+                }.onFailure { compressed += File(path).length() }
+            }
+            return ApkComposition(stored, compressed)
         }
     }
 }

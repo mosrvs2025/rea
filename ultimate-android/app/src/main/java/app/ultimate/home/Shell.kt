@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 sealed interface Route {
     data object Home : Route
     data object Library : Route
+    data object Activity : Route
     data class InTool(val tool: Tool, val launch: ToolLaunch) : Route
 }
 
@@ -26,6 +27,7 @@ class Shell(private val tools: List<Tool>) {
 
     fun showHome() = top(Route.Home)
     fun showLibrary() = top(Route.Library)
+    fun showActivity() = top(Route.Activity)
 
     private fun top(route: Route) {
         lastTopLevel = route

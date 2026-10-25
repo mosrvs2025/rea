@@ -83,6 +83,8 @@ import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
 import app.ultimate.core.AudioPlayerBar
 import app.ultimate.core.BackBar
+import app.ultimate.core.JobLog
+import app.ultimate.core.Terminal
 import app.ultimate.core.SuccessCheck
 import app.ultimate.core.ToolLaunch
 import app.ultimate.core.VideoThumb
@@ -112,7 +114,7 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch) {
     }
 
     when {
-        queue.jobs.isNotEmpty() -> RunScreen(queue, onCancel = c::cancel, onDone = c::dismissResults)
+        queue.jobs.isNotEmpty() -> RunScreen(queue, c.log, onCancel = c::cancel, onDone = c::dismissResults)
         picked.isNotEmpty() || probing > 0 -> ConfigureScreen(
             picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onRemove = c::remove, onBack = c::clear,
             onStart = { withConsent { c.start() } },
@@ -331,7 +333,7 @@ private fun sourceSummary(s: AudioSource): String {
 // ───────────────────────────── Run ──────────────────────────────
 
 @Composable
-private fun RunScreen(queue: AudioQueue, onCancel: () -> Unit, onDone: () -> Unit) {
+private fun RunScreen(queue: AudioQueue, log: JobLog, onCancel: () -> Unit, onDone: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
     BackHandler(enabled = !queue.active, onBack = onDone)
@@ -362,6 +364,10 @@ private fun RunScreen(queue: AudioQueue, onCancel: () -> Unit, onDone: () -> Uni
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item { RunHero(queue) }
+            item {
+                val lines by log.lines.collectAsStateWithLifecycle()
+                Terminal(lines, live = queue.active)
+            }
             items(queue.jobs, key = { it.id }) { RunRow(it) }
         }
     }

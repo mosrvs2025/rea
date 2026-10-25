@@ -1,7 +1,9 @@
 package app.ultimate.pluck.engine
 
 import android.content.Context
+import app.ultimate.core.JobLog
 import app.ultimate.core.WorkHub
+import app.ultimate.core.formatBytes
 import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import app.ultimate.pluck.model.AppItem
@@ -42,6 +44,8 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
     val state: StateFlow<ExtractState> = _state.asStateFlow()
 
     override val workId = "pluck"
+    override val workTitle = "Pluck"
+    override val log = JobLog()
     override val work: StateFlow<WorkSnapshot> = _state.map(::snapshot).stateIn(scope, SharingStarted.Eagerly, WorkSnapshot())
     override fun cancelWork() = cancel()
 
@@ -66,11 +70,13 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
     }
     private var runner: Job? = null
 
-    fun submit(apps: List<AppItem>) {
+    fun submit(apps: List<AppItem>, compact: Boolean) {
         if (_state.value.active || apps.isEmpty()) return
         _state.value = ExtractState(apps.map { ExtractJob(it) }, active = true)
+        log.reset()
+        log.info("Pluck · ${apps.size} app${if (apps.size == 1) "" else "s"} · ${formatBytes(apps.sumOf { it.apkBytes })} · ${if (compact) "compact" else "APK"}")
         hub.start()
-        runner = scope.launch { runAll() }
+        runner = scope.launch { runAll(compact) }
     }
 
     fun cancel() {
@@ -82,13 +88,15 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
         if (!_state.value.active) _state.value = ExtractState()
     }
 
-    private suspend fun runAll() {
+    private suspend fun runAll(compact: Boolean) {
         try {
             for (i in _state.value.jobs.indices) {
                 val job = _state.value.jobs[i]
+                log.info("▶ ${job.app.label} ${job.app.versionName} (${job.app.packageName})")
                 val status = try {
                     update(i, JobStatus.Running(0, job.app.apkBytes))
-                    val out = extractor.extract(job.app) { done, total -> update(i, JobStatus.Running(done, total)) }
+                    val out = extractor.extract(job.app, compact, log) { done, total -> update(i, JobStatus.Running(done, total)) }
+                    log.ok("  saved   Download/Pluck/${out.displayName} · ${formatBytes(out.bytes)}")
                     val entry = SavedEntry(
                         UUID.randomUUID().toString(), System.currentTimeMillis(), job.app.packageName, job.app.label, job.app.versionName,
                         out.uri.toString(), out.displayName, out.bytes, out.splitCount, out.sha256,
@@ -98,11 +106,14 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    log.error("  failed  ${e.javaClass.simpleName}: ${e.message}")
                     JobStatus.Failed(e.message?.take(160) ?: "Could not extract this app")
                 }
                 update(i, status)
             }
+            log.ok("Finished · ${_state.value.saved.size} saved · ${formatBytes(_state.value.saved.sumOf { it.bytes })}")
         } catch (e: CancellationException) {
+            log.warn("Cancelled")
             _state.update { s ->
                 s.copy(jobs = s.jobs.map { if (it.status is JobStatus.Queued || it.status is JobStatus.Running) it.copy(status = JobStatus.Cancelled) else it })
             }

@@ -16,6 +16,9 @@ import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
 import app.ultimate.audio.model.PcmMixer
 import app.ultimate.audio.model.PeakTracker
+import app.ultimate.core.JobLog
+import app.ultimate.core.formatBytes
+import app.ultimate.core.formatDuration
 import de.sciss.jump3r.lowlevel.LameEncoder
 import java.io.IOException
 import java.io.OutputStream
@@ -47,14 +50,17 @@ data class Converted(
  * MP3 is encoded with a Java port of LAME; the video's audio is decoded with the phone's own decoders.
  */
 class AudioConverter(private val context: Context) {
+    private var log: JobLog = JobLog()
 
     suspend fun convert(
         input: Uri,
         inputName: String,
         src: AudioSource,
         settings: AudioSettings,
+        log: JobLog,
         onProgress: (fraction: Float, peaks: List<Float>) -> Unit,
     ): Converted = withContext(Dispatchers.IO) {
+        this@AudioConverter.log = log
         val format = AudioPlanner.effectiveFormat(src, settings)
         val resolver = context.contentResolver
         val values = ContentValues().apply {
@@ -81,6 +87,7 @@ class AudioConverter(private val context: Context) {
             values.put(MediaStore.Audio.Media.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
             val bytes = size(uri)
+            log.detail("  wrote   ${formatBytes(bytes)} · ${if (kept > 0) bytes * 8 / kept else 0} kbps average · ${facts.sampleRate} Hz · ${if (facts.channels == 1) "mono" else "stereo"}")
             Converted(
                 uri, displayName(uri) ?: (baseName(inputName) + "." + format.ext), bytes, kept, facts.sampleRate, facts.channels,
                 if (kept > 0) (bytes * 8000 / kept).toInt() else 0, facts.peaks, format,
@@ -121,11 +128,14 @@ class AudioConverter(private val context: Context) {
                 if (encoder == null) {
                     effectiveRate = AudioPlanner.mp3Rate(srcRate)
                     val format = AudioFormat(effectiveRate.toFloat(), 16, outChannels, true, false)
+                    if (effectiveRate != srcRate) log.warn("  resample ${srcRate} Hz → $effectiveRate Hz (MP3 does not support $srcRate Hz)")
+                    if (srcChannels > outChannels) log.detail("  mix     $srcChannels → $outChannels channel${if (outChannels == 1) "" else "s"}")
                     encoder = LameEncoder(
                         format, s.kbps,
                         if (outChannels == 1) LameEncoder.CHANNEL_MODE_MONO else LameEncoder.CHANNEL_MODE_AUTO,
                         LameEncoder.QUALITY_MIDDLE, false,
                     ).also {
+                        log.detail("  encoder LAME ${it.encoderVersion} · ${s.kbps} kbps CBR · ${if (outChannels == 1) "mono" else "joint stereo"} · $effectiveRate Hz")
                         pending = ByteArray(it.getPCMBufferSize())
                         mp3 = ByteArray(it.getMP3BufferSize())
                     }
@@ -204,6 +214,7 @@ class AudioConverter(private val context: Context) {
         input: Uri, src: AudioSource, s: AudioSettings, fd: ParcelFileDescriptor,
         onProgress: (Float, List<Float>) -> Unit,
     ): Facts {
+        log.detail("  mode    copying AAC frames untouched (no re-encode)")
         val tracker = decode(input, src, s, { f, p -> onProgress(f * 0.9f, p) }) { _, _, _, _ -> }
         val peaks = tracker.snapshot()
         val extractor = MediaExtractor()
@@ -275,6 +286,8 @@ class AudioConverter(private val context: Context) {
             val dec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!).also { codec = it }
             dec.configure(format, null, null, 0)
             dec.start()
+            log.detail("  decoder ${dec.name} · ${format.getString(MediaFormat.KEY_MIME)} · $rate Hz · $channels ch")
+            if (startUs > 0 || s.trimEndMs > 0) log.detail("  trim    ${formatDuration(startUs / 1000)} → ${formatDuration(endUs / 1000)}")
 
             val info = MediaCodec.BufferInfo()
             var scratch = ShortArray(0)
@@ -340,6 +353,7 @@ class AudioConverter(private val context: Context) {
                         rate = f.getInteger(MediaFormat.KEY_SAMPLE_RATE)
                         channels = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                         floatPcm = f.containsKey(MediaFormat.KEY_PCM_ENCODING) && f.getInteger(MediaFormat.KEY_PCM_ENCODING) == PlatformAudioFormat.ENCODING_PCM_FLOAT
+                        log.detail("  pcm     $rate Hz · $channels ch · ${if (floatPcm) "float" else "16-bit"}")
                     }
                 }
             }

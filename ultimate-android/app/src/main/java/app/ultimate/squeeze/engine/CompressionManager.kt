@@ -5,7 +5,14 @@ import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.MediaStore
+import app.ultimate.core.JobLog
+import app.ultimate.core.ProgressTicker
 import app.ultimate.core.WorkHub
+import app.ultimate.core.formatDuration
+import app.ultimate.core.formatEta
+import app.ultimate.core.formatMbps
+import app.ultimate.core.percentSaved
+import java.util.Locale
 import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import app.ultimate.core.formatBytes
@@ -59,6 +66,9 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     val state: StateFlow<QueueState> = _state.asStateFlow()
 
     override val workId = "squeeze"
+    override val workTitle = "Squeeze"
+    override val log = JobLog()
+    private val ticker = ProgressTicker(log)
     override val work: StateFlow<WorkSnapshot> = _state.map(::snapshot).stateIn(scope, SharingStarted.Eagerly, WorkSnapshot())
     override fun cancelWork() = cancel()
 
@@ -92,6 +102,10 @@ class CompressionManager(private val app: Context, private val library: LibraryS
             Item(i, p.uri, p.name, p.source, p.plan, if (skip != null) Status.Skipped(skip) else Status.Queued)
         }
         _state.value = QueueState(jobs, active = true)
+        log.reset()
+        log.info("Squeeze · ${jobs.size} video${if (jobs.size == 1) "" else "s"} · ${settingsLine(settings)}")
+        val caps = DeviceCodecs.detect()
+        log.detail("Hardware encoders: HEVC ${if (caps.hevc) "yes" else "no"} · AV1 ${if (caps.av1) "yes" else "no"}")
         hub.start()
         runner = scope.launch { runAll(settings) }
     }
@@ -108,7 +122,15 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     private suspend fun runAll(settings: Settings) {
         try {
             for (job in _state.value.jobs) {
-                if (job.status !is Status.Queued) continue
+                log.info("▶ ${job.name}")
+                log.detail("  source  ${sourceLine(job.source)}")
+                val skipped = job.status as? Status.Skipped
+                if (skipped != null) {
+                    log.warn("  skip    ${skipped.reason}")
+                    continue
+                }
+                log.detail("  plan    ${planLine(job.plan)}")
+                job.plan.warning?.let { log.warn("  note    $it") }
                 val result = try {
                     runOne(job, settings)
                 } catch (e: CancellationException) {
@@ -116,9 +138,18 @@ class CompressionManager(private val app: Context, private val library: LibraryS
                 } catch (e: Exception) {
                     Status.Failed(e.message?.take(160) ?: "Could not compress this video")
                 }
+                when (result) {
+                    is Status.Done -> log.ok("  done    ${formatBytes(job.source.sizeBytes)} → ${formatBytes(result.outputBytes)} (−${percentSaved(job.source.sizeBytes, result.outputBytes)}%)")
+                    is Status.Skipped -> log.warn("  kept    ${result.reason}")
+                    is Status.Failed -> log.error("  failed  ${result.message}")
+                    else -> Unit
+                }
                 setStatus(job.id, result)
             }
+            val s = _state.value
+            log.ok("Finished · ${s.jobs.count { it.status is Status.Done }} saved · ${formatBytes(s.savedBytes)} freed")
         } catch (e: CancellationException) {
+            log.warn("Cancelled")
             _state.update { s ->
                 s.copy(jobs = s.jobs.map { if (it.status is Status.Queued || it.status is Status.Running) it.copy(status = Status.Cancelled) else it })
             }
@@ -131,13 +162,22 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     private suspend fun runOne(job: Item, settings: Settings): Status {
         val tmp = File(workDir, "job${job.id}.mp4")
         val started = SystemClock.elapsedRealtime()
+        ticker.reset()
         try {
-            compressor.compress(job.uri, tmp, job.plan, job.source.isHdr, settings.muteAudio) { p ->
+            val facts = compressor.compress(job.uri, tmp, job.plan, job.source.isHdr, settings.muteAudio) { p ->
                 val elapsed = SystemClock.elapsedRealtime() - started
                 val eta = if (p > 0.03f) (elapsed / p * (1 - p)).toLong() else null
                 val speed = if (p > 0.03f && elapsed > 0) job.source.durationMs * p / elapsed else null
                 setStatus(job.id, Status.Running(p, eta, speed))
+                ticker.tick(p) { f -> "  ${(f * 100).toInt()}%".padEnd(10) + (speed?.let { String.format(Locale.US, "%.1f× real time", it) } ?: "") + (eta?.let { " · ${formatEta(it)}" } ?: "") }
             }
+            val took = SystemClock.elapsedRealtime() - started
+            log.detail("  encoder ${facts.videoEncoder ?: "?"} · audio ${facts.audioEncoder ?: "passthrough"}")
+            log.detail(
+                "  output  ${facts.width}×${facts.height} · ${facts.frames} frames · video " +
+                    (if (facts.averageVideoBitrate > 0) formatMbps(facts.averageVideoBitrate) else "?") +
+                    " (asked ${formatMbps(job.plan.videoBitrate)}) · took ${formatDuration(took)}",
+            )
             val outBytes = tmp.length()
             if (outBytes <= 0) throw IOException("Encoder produced no output")
             // Guard: a lossy re-encode that is not clearly smaller is worse than the original.
@@ -173,6 +213,18 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     } catch (e: Exception) {
         null
     }
+
+    private fun settingsLine(s: Settings) =
+        (if (s.mode == Mode.Preset) s.preset.label else "target ≤ ${s.targetMb} MB") + " · codec ${s.codec.label}" +
+            (s.maxShortSide?.let { " · ≤${it}p" } ?: "") + (s.maxFps?.let { " · ≤$it fps" } ?: "") + if (s.muteAudio) " · no audio" else ""
+
+    private fun sourceLine(s: Source) =
+        "${s.width}×${s.height} · ${String.format(Locale.US, "%.2f", s.fps)} fps · ${s.mime.substringAfter('/')} · ${formatMbps(s.videoBitrate)} · " +
+            "${formatDuration(s.durationMs)} · ${formatBytes(s.sizeBytes)}" + if (s.isHdr) " · HDR" else ""
+
+    private fun planLine(p: Plan) =
+        "${p.codec.label} ${p.width}×${p.height}" + (p.fps?.let { " · $it fps" } ?: "") +
+            " · ${formatMbps(p.videoBitrate)} VBR · est ${formatBytes(p.estimatedBytes)}"
 
     private fun setStatus(id: Int, status: Status) = _state.update { s ->
         s.copy(jobs = s.jobs.map { if (it.id == id) it.copy(status = status) else it })

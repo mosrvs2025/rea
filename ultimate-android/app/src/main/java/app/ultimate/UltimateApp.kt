@@ -40,13 +40,20 @@ class UltimateApp : Application() {
     val audioStore: AudioStore by lazy { AudioStore(this) }
     val audioManager: AudioManager by lazy { AudioManager(this, audioStore, work) }
 
-    val tools: List<Tool> by lazy { listOf(SqueezeTool(this), AudioTool(this), PluckTool(this)) }
+    /** The tools this edition ships, in Home order. The flags are compile-time constants, so R8 removes tools that are off. */
+    val tools: List<Tool> by lazy {
+        buildList {
+            if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
+            if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
+            if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         // Every manager must be registered before the first background job starts, so the one service watches them all.
-        work.register(squeezeManager)
-        work.register(pluckManager)
-        work.register(audioManager)
+        if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
+        if (BuildConfig.HAS_PLUCK) work.register(pluckManager)
+        if (BuildConfig.HAS_AUDIO) work.register(audioManager)
     }
 }

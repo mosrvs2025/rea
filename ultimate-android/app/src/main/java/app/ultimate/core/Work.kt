@@ -40,7 +40,11 @@ data class WorkSnapshot(
 /** Implemented by anything that runs long work and wants it kept alive in the background. */
 interface WorkSource {
     val workId: String
+    /** Human name for the Activity tab, e.g. "Squeeze". */
+    val workTitle: String
     val work: StateFlow<WorkSnapshot>
+    /** The current or most recent run's log. */
+    val log: JobLog
     fun cancelWork()
 }
 

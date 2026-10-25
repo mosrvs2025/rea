@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Settings
@@ -70,7 +71,7 @@ import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailScreen(vm: PluckController, onExtract: (List<AppItem>, Boolean) -> Unit) {
+fun DetailScreen(vm: PluckController, onExtract: (List<AppItem>) -> Unit) {
     val pkg by vm.detailPackage.collectAsStateWithLifecycle()
     val apps by vm.apps.collectAsStateWithLifecycle()
     val detail by vm.detail.collectAsStateWithLifecycle()
@@ -94,11 +95,15 @@ fun DetailScreen(vm: PluckController, onExtract: (List<AppItem>, Boolean) -> Uni
         bottomBar = {
             Surface(tonalElevation = 3.dp) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button({ onExtract(listOf(item), false) }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) { Text("Extract APK") }
-                    FilledTonalButton({ onExtract(listOf(item), true) }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Rounded.Share, null)
+                    Button({ onExtract(listOf(item)) }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.Rounded.Download, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Extract & share")
+                        Text("Extract…")
+                    }
+                    FilledTonalButton({ openApp(context, item.packageName) }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp)) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Open")
                     }
                 }
             }
@@ -268,5 +273,6 @@ private fun TrackersCard(vm: PluckController, item: AppItem) {
             "Found by searching the app's code for known SDK names. Renamed SDKs can be missed, and a match shows the code is present, not in use.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        androidx.compose.material3.TextButton({ vm.closeDetail(); vm.openPage(Page.Trackers) }) { Text("Compare with all your apps") }
     }
 }

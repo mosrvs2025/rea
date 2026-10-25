@@ -98,6 +98,10 @@ fun ExtractScreen(vm: PluckController, state: ExtractState) {
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Hero(state) }
+            item {
+                val lines by vm.log.lines.collectAsStateWithLifecycle()
+                Terminal(lines, live = state.active)
+            }
             items(state.jobs, key = { it.app.packageName }) { JobRow(it) }
         }
     }

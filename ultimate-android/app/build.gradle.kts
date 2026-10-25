@@ -16,6 +16,45 @@ android {
         versionName = "1.0.0"
     }
 
+    // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
+    // A single-tool edition makes that tool its own home screen.
+    // Build one with e.g. `gradle :app:assembleSqueezeRelease`. Add an edition by copying a block and its src/<edition>/ folder.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("ultimate") {
+            dimension = "edition"
+            applicationId = "app.ultimate"
+            resValue("string", "app_name", "Ultimate")
+            buildConfigField("boolean", "HAS_SQUEEZE", "true")
+            buildConfigField("boolean", "HAS_AUDIO", "true")
+            buildConfigField("boolean", "HAS_PLUCK", "true")
+        }
+        create("squeeze") {
+            dimension = "edition"
+            applicationId = "app.squeeze"
+            resValue("string", "app_name", "Squeeze")
+            buildConfigField("boolean", "HAS_SQUEEZE", "true")
+            buildConfigField("boolean", "HAS_AUDIO", "false")
+            buildConfigField("boolean", "HAS_PLUCK", "false")
+        }
+        create("audio") {
+            dimension = "edition"
+            applicationId = "app.ultimate.audio"
+            resValue("string", "app_name", "Video to Audio")
+            buildConfigField("boolean", "HAS_SQUEEZE", "false")
+            buildConfigField("boolean", "HAS_AUDIO", "true")
+            buildConfigField("boolean", "HAS_PLUCK", "false")
+        }
+        create("pluck") {
+            dimension = "edition"
+            applicationId = "app.pluck"
+            resValue("string", "app_name", "Pluck")
+            buildConfigField("boolean", "HAS_SQUEEZE", "false")
+            buildConfigField("boolean", "HAS_AUDIO", "false")
+            buildConfigField("boolean", "HAS_PLUCK", "true")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -31,7 +70,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

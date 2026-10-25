@@ -6,11 +6,15 @@ import app.ultimate.pluck.engine.ScanStore
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppDetail
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.engine.ApkComposition
+import app.ultimate.pluck.engine.Extractor
+import app.ultimate.pluck.engine.SdkKind
 import app.ultimate.pluck.model.Filter
+import app.ultimate.pluck.model.ListOptions
+import app.ultimate.pluck.model.QuickFilter
 import app.ultimate.pluck.model.Sort
-import app.ultimate.pluck.model.accepts
-import app.ultimate.pluck.model.matches
-import app.ultimate.pluck.model.sortedBy
+import app.ultimate.pluck.model.TrackerFacts
+import app.ultimate.pluck.model.arrange
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +35,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 enum class Tab { Apps, Insights }
 
+/** Full-screen pages layered over the tabs. */
+enum class Page { Main, Trackers }
+
 data class ScanProgress(val done: Int, val total: Int)
 
 /** App-lifetime state for the Pluck tool. Created the first time the tool opens, so the app list loads only when it is wanted. */
@@ -41,14 +48,10 @@ class PluckController(private val app: UltimateApp) {
     val apps = MutableStateFlow<List<AppItem>>(emptyList())
     val loading = MutableStateFlow(true)
     val query = MutableStateFlow("")
-    val filter = MutableStateFlow(Filter.User)
-    val sort = MutableStateFlow(Sort.Name)
+    val options = MutableStateFlow(ListOptions())
     val selection = MutableStateFlow<Set<String>>(emptySet())
     val tab = MutableStateFlow(Tab.Apps)
-
-    val visible: StateFlow<List<AppItem>> = combine(apps, query, filter, sort) { all, q, f, s ->
-        all.filter { f.accepts(it) && it.matches(q) }.sortedBy(s)
-    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val page = MutableStateFlow(Page.Main)
 
     val detailPackage = MutableStateFlow<String?>(null)
     val detail = MutableStateFlow<AppDetail?>(null)
@@ -56,6 +59,18 @@ class PluckController(private val app: UltimateApp) {
     val extraction = app.pluckManager.state
     val saved = app.pluckHistory.entries
     val scans = app.pluckScans.results
+
+    /** Scan results that still match the installed version of each app. */
+    val trackers: StateFlow<Map<String, TrackerFacts>> = combine(apps, scans) { all, records ->
+        val kinds = TrackerScanner.catalog.associate { it.name to it.kind }
+        all.mapNotNull { a ->
+            records[a.packageName]?.takeIf { it.versionCode == a.versionCode && it.updateTime == a.updateTime }
+                ?.let { r -> a.packageName to TrackerFacts(r.sdks, r.sdks.count { kinds[it] == SdkKind.Ads }) }
+        }.toMap()
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    val visible: StateFlow<List<AppItem>> = combine(apps, query, options, trackers) { all, q, o, t -> all.arrange(q, o, t) }
+        .stateIn(scope, SharingStarted.Eagerly, emptyList())
     val scanProgress = MutableStateFlow<ScanProgress?>(null)
     private var scanJob: Job? = null
     val shareWhenDone = MutableStateFlow(false)
@@ -91,11 +106,31 @@ class PluckController(private val app: UltimateApp) {
         detail.value = null
     }
 
-    fun extract(items: List<AppItem>, share: Boolean) {
+    fun extract(items: List<AppItem>, compact: Boolean, share: Boolean) {
         shareWhenDone.value = share
-        app.pluckManager.submit(items)
+        app.pluckManager.submit(items, compact)
         clearSelection()
     }
+
+    suspend fun composition(items: List<AppItem>): ApkComposition = withContext(Dispatchers.IO) {
+        items.map { Extractor.composition(it.apkPaths) }.fold(ApkComposition(0, 0)) { a, b -> ApkComposition(a.storedBytes + b.storedBytes, a.compressedBytes + b.compressedBytes) }
+    }
+
+    fun updateOptions(change: (ListOptions) -> ListOptions) = options.update(change)
+
+    /** Jumps to the Apps tab showing every app in a given order, e.g. from an Insights "See all". */
+    fun showApps(sort: Sort, reversed: Boolean = false, quick: Set<QuickFilter> = emptySet()) {
+        options.value = ListOptions(Filter.User, sort, reversed, quick)
+        query.value = ""
+        tab.value = Tab.Apps
+        page.value = Page.Main
+    }
+
+    fun openPage(p: Page) {
+        page.value = p
+    }
+
+    val log get() = app.pluckManager.log
 
     fun cancelExtraction() = app.pluckManager.cancel()
     fun dismissResults() {

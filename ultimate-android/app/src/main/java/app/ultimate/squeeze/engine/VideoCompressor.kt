@@ -28,6 +28,17 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+/** What Media3 reports it actually did, for the log. Nulls and zeros mean the value was not reported. */
+data class ExportFacts(
+    val videoEncoder: String?,
+    val audioEncoder: String?,
+    val averageVideoBitrate: Int,
+    val averageAudioBitrate: Int,
+    val width: Int,
+    val height: Int,
+    val frames: Int,
+)
+
 /** Runs one hardware-accelerated transcode according to a [Plan]. Must be called from a coroutine; it hops to the main looper. */
 @androidx.annotation.OptIn(UnstableApi::class)
 class VideoCompressor(private val context: Context) {
@@ -39,7 +50,7 @@ class VideoCompressor(private val context: Context) {
         sourceIsHdr: Boolean,
         muteAudio: Boolean,
         onProgress: (Float) -> Unit,
-    ) = withContext(Dispatchers.Main.immediate) {
+    ): ExportFacts = withContext(Dispatchers.Main.immediate) {
         suspendCancellableCoroutine { cont ->
             val handler = Handler(Looper.getMainLooper())
             val encoders = DefaultEncoderFactory.Builder(context)
@@ -60,7 +71,12 @@ class VideoCompressor(private val context: Context) {
                 .addListener(object : Transformer.Listener {
                     override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                         handler.removeCallbacks(poll)
-                        if (cont.isActive) cont.resume(Unit)
+                        val facts = ExportFacts(
+                            exportResult.videoEncoderName, exportResult.audioEncoderName,
+                            exportResult.averageVideoBitrate, exportResult.averageAudioBitrate,
+                            exportResult.width, exportResult.height, exportResult.videoFrameCount,
+                        )
+                        if (cont.isActive) cont.resume(facts)
                     }
 
                     override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {

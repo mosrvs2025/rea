@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Android
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -157,16 +159,33 @@ fun rememberNotificationConsent(): (action: () -> Unit) -> Unit {
     }
 }
 
-/** Plain top bar with a back arrow, used by tools whose first screen has no other app bar. */
+/** Shortcuts every tool screen can show. In a single-tool build there is no Home, so the tool's back arrow is hidden. */
+data class ShellNav(val standalone: Boolean, val openLibrary: () -> Unit, val openActivity: () -> Unit)
+
+val LocalShellNav = androidx.compose.runtime.staticCompositionLocalOf<ShellNav?> { null }
+
+/** Library and Activity buttons for a tool's top bar. */
+@Composable
+fun ShellActions() {
+    val nav = LocalShellNav.current ?: return
+    androidx.compose.material3.IconButton(nav.openActivity) { Icon(androidx.compose.material.icons.Icons.Rounded.Terminal, "Activity") }
+    androidx.compose.material3.IconButton(nav.openLibrary) { Icon(androidx.compose.material.icons.Icons.Rounded.VideoLibrary, "Library") }
+}
+
+/** The tool's own back arrow, unless this build is the tool on its own. */
+@Composable
+fun ToolBackButton(onBack: () -> Unit) {
+    if (LocalShellNav.current?.standalone == true) return
+    androidx.compose.material3.IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
+}
+
+/** Plain top bar for a tool's first screen. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun BackBar(onBack: () -> Unit, title: String = "") {
     androidx.compose.material3.TopAppBar(
         title = { androidx.compose.material3.Text(title) },
-        navigationIcon = {
-            androidx.compose.material3.IconButton(onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
-            }
-        },
+        navigationIcon = { ToolBackButton(onBack) },
+        actions = { ShellActions() },
     )
 }

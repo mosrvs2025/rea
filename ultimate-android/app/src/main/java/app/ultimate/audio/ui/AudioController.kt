@@ -51,6 +51,8 @@ class AudioController(private val app: UltimateApp) {
         settings.update { it.copy(trimStartMs = 0, trimEndMs = -1) }
     }
 
+    val log get() = manager.log
+
     fun cancel() = manager.cancel()
     fun dismissResults() = manager.dismiss()
 }

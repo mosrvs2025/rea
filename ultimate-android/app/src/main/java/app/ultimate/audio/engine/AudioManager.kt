@@ -6,7 +6,12 @@ import android.os.SystemClock
 import app.ultimate.audio.model.AudioPlanner
 import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
+import app.ultimate.audio.model.OutFormat
+import app.ultimate.core.JobLog
+import app.ultimate.core.ProgressTicker
 import app.ultimate.core.WorkHub
+import app.ultimate.core.formatDuration
+import java.util.Locale
 import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import app.ultimate.core.formatBytes
@@ -48,6 +53,9 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
     private var runner: Job? = null
 
     override val workId = "audio"
+    override val workTitle = "Video to audio"
+    override val log = JobLog()
+    private val ticker = ProgressTicker(log)
     override val work: StateFlow<WorkSnapshot> = _state.map(::snapshot).stateIn(scope, SharingStarted.Eagerly, WorkSnapshot())
     override fun cancelWork() = cancel()
 
@@ -75,6 +83,12 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
         val jobs = videos.mapNotNull { v -> v.audio?.let { AudioJob(0, v.uri, v.name, it) } }.mapIndexed { i, j -> j.copy(id = i) }
         if (jobs.isEmpty()) return
         _state.value = AudioQueue(jobs, active = true)
+        log.reset()
+        log.info(
+            "Video to audio · ${jobs.size} file${if (jobs.size == 1) "" else "s"} · ${settings.format.label}" +
+                (if (settings.format == OutFormat.Mp3) " ${settings.kbps} kbps" else "") + if (settings.mono) " · mono" else "",
+        )
+        videos.filter { it.audio == null }.forEach { log.warn("skip ${it.name}: no audio track") }
         hub.start()
         // Trimming only makes sense for a single video, so it is ignored for batches.
         val effective = if (jobs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
@@ -95,14 +109,19 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
             for (i in _state.value.jobs.indices) {
                 val job = _state.value.jobs[i]
                 val started = SystemClock.elapsedRealtime()
+                ticker.reset()
+                log.info("▶ ${job.name}")
+                if (AudioPlanner.effectiveFormat(job.source, settings) != settings.format) log.warn("  note    audio is ${job.source.mime.substringAfter('/')}, not AAC, so it becomes MP3")
                 val status = try {
                     update(i, AudioStatus.Running(0f, emptyList(), null))
                     val kept = AudioPlanner.keptMs(job.source, settings)
-                    val out = converter.convert(job.uri, job.name, job.source, settings) { fraction, peaks ->
+                    val out = converter.convert(job.uri, job.name, job.source, settings, log) { fraction, peaks ->
                         val elapsed = SystemClock.elapsedRealtime() - started
                         val speed = if (fraction > 0.03f && elapsed > 0) kept * fraction / elapsed else null
                         update(i, AudioStatus.Running(fraction, peaks, speed))
+                        ticker.tick(fraction) { f -> "  ${(f * 100).toInt()}%".padEnd(10) + (speed?.let { String.format(Locale.US, "%.1f× real time", it) } ?: "") }
                     }
+                    log.ok("  done    ${out.displayName} · ${formatBytes(out.bytes)} · took ${formatDuration(SystemClock.elapsedRealtime() - started)}")
                     val entry = AudioEntry(
                         UUID.randomUUID().toString(), System.currentTimeMillis(), job.name, out.displayName, out.uri.toString(), out.bytes,
                         out.durationMs, out.format, out.bitrate, out.sampleRate, out.channels, out.peaks,
@@ -112,11 +131,14 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    log.error("  failed  ${e.javaClass.simpleName}: ${e.message}")
                     AudioStatus.Failed(e.message?.take(160) ?: "Could not convert this video")
                 }
                 update(i, status)
             }
+            log.ok("Finished · ${_state.value.done.size} file${if (_state.value.done.size == 1) "" else "s"} in Music/Ultimate")
         } catch (e: CancellationException) {
+            log.warn("Cancelled")
             _state.update { s ->
                 s.copy(jobs = s.jobs.map { if (it.status is AudioStatus.Queued || it.status is AudioStatus.Running) it.copy(status = AudioStatus.Cancelled) else it })
             }

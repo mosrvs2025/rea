@@ -452,6 +452,10 @@ private fun RunScreen(queue: QueueState, library: List<LibraryEntry>, vm: Squeez
         Box(Modifier.fillMaxSize().padding(pad)) {
             LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item { if (queue.active) ProgressHero(queue) else DoneHero(queue) }
+                item {
+                    val lines by vm.log.lines.collectAsStateWithLifecycle()
+                    Terminal(lines, live = queue.active)
+                }
                 if (!queue.active) {
                     firstDone?.let { entry ->
                         item {

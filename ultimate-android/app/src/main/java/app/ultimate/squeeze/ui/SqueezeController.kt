@@ -98,6 +98,8 @@ class SqueezeController(private val app: UltimateApp) {
 
     suspend fun removeFromLibrary(id: String, deleteFile: Boolean) = store.remove(id, deleteFile)
 
+    val log get() = manager.log
+
     fun cancel() = manager.cancel()
 
     fun dismissResults() = manager.dismiss()
