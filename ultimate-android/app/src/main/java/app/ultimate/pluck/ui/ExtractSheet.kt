@@ -30,6 +30,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import app.ultimate.pluck.model.FileNames
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +110,8 @@ fun ExtractSheet(items: List<AppItem>, c: PluckController, onDismiss: () -> Unit
                 }
             }
 
+            NameSection(items.first(), c, if (compact) (if (items.first().isSplit) ".apks" else ".zip") else if (items.first().isSplit) ".apks" else ".apk")
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Open the share sheet when done", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                 Switch(share, { share = it })
@@ -116,6 +125,31 @@ fun ExtractSheet(items: List<AppItem>, c: PluckController, onDismiss: () -> Unit
                     "without changing a byte.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** The file-name pattern, with one-tap placeholders and a live preview of the first file. */
+@Composable
+private fun NameSection(first: AppItem, c: PluckController, ext: String) {
+    val template by c.nameTemplate.collectAsStateWithLifecycle()
+    var open by rememberSaveable { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { open = !open }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("File name", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(FileNames.render(template, first) + ext, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(if (open) "Done" else "Change", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        }
+        if (open) {
+            OutlinedTextField(template, c::setNameTemplate, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Pattern") })
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FileNames.TOKENS.forEach { (token, label) -> AssistChip({ c.setNameTemplate(template + token) }, { Text("+ $label") }) }
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FileNames.PRESETS.forEach { p -> FilterChip(template == p, { c.setNameTemplate(p) }, { Text(p) }) }
+            }
         }
     }
 }

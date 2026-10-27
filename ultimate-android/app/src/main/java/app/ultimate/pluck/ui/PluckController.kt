@@ -6,6 +6,7 @@ import app.ultimate.pluck.engine.ScanStore
 import app.ultimate.pluck.engine.TrackerScanner
 import app.ultimate.pluck.model.AppDetail
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.model.FileNames
 import app.ultimate.pluck.engine.ApkComposition
 import app.ultimate.pluck.engine.Extractor
 import app.ultimate.pluck.engine.SdkKind
@@ -132,9 +133,19 @@ class PluckController(private val app: UltimateApp) {
         detail.value = null
     }
 
+    private val prefs = app.getSharedPreferences("pluck", android.content.Context.MODE_PRIVATE)
+
+    /** How saved files are named; remembered between runs. */
+    val nameTemplate = MutableStateFlow(prefs.getString("nameTemplate", null) ?: FileNames.DEFAULT)
+
+    fun setNameTemplate(t: String) {
+        nameTemplate.value = t
+        prefs.edit().putString("nameTemplate", t).apply()
+    }
+
     fun extract(items: List<AppItem>, compact: Boolean, share: Boolean) {
         shareWhenDone.value = share
-        app.pluckManager.submit(items, compact)
+        app.pluckManager.submit(items, compact, nameTemplate.value.ifBlank { FileNames.DEFAULT })
         clearSelection()
     }
 

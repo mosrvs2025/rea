@@ -72,6 +72,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import app.ultimate.squeeze.model.Planner
+import app.ultimate.squeeze.model.CropShape
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -241,8 +246,8 @@ private fun ConfigureScreen(
                         when {
                             probing -> "Reading videos…"
                             toEncode == 0 -> "Nothing to compress"
-                            toEncode == 1 -> "Compress video"
-                            else -> "Compress $toEncode videos"
+                            toEncode == 1 -> if (settings.edits) "Save video" else "Compress video"
+                            else -> if (settings.edits) "Save $toEncode videos" else "Compress $toEncode videos"
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -253,6 +258,7 @@ private fun ConfigureScreen(
         LazyColumn(Modifier.padding(pad), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { EstimateCard(before, after, ready.isNotEmpty()) }
             item { ModeSection(settings, entries, onChange) }
+            item { EditSection(settings, onChange) }
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -300,7 +306,8 @@ private fun EstimateCard(before: Long, after: Long, show: Boolean) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Saves about ${percentSaved(before, after)}%. Real size varies with how busy the footage is.",
+                if (after > before) "About ${percentSaved(after, before)}% larger than the original. Real size varies with how busy the footage is."
+                else "Saves about ${percentSaved(before, after)}%. Real size varies with how busy the footage is.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
@@ -315,23 +322,24 @@ private fun ModeSection(settings: Settings, entries: List<Entry>, onChange: ((Se
         Choice("Small", Mode.Preset, Preset.Small),
         Choice("Tiny", Mode.Preset, Preset.Tiny),
         Choice("Size", Mode.TargetSize, null),
+        Choice("Exact", Mode.Exact, null),
     )
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             choices.forEachIndexed { i, c ->
-                val selected = if (c.mode == Mode.TargetSize) settings.mode == Mode.TargetSize else settings.mode == Mode.Preset && settings.preset == c.preset
+                val selected = if (c.preset == null) settings.mode == c.mode else settings.mode == Mode.Preset && settings.preset == c.preset
                 SegmentedButton(
                     selected = selected,
-                    onClick = { onChange { s -> if (c.preset != null) s.copy(mode = Mode.Preset, preset = c.preset) else s.copy(mode = Mode.TargetSize) } },
+                    onClick = { onChange { s -> if (c.preset != null) s.copy(mode = Mode.Preset, preset = c.preset) else s.copy(mode = c.mode) } },
                     shape = SegmentedButtonDefaults.itemShape(i, choices.size),
                     label = { Text(c.label, maxLines = 1) },
                 )
             }
         }
-        if (settings.mode == Mode.Preset) {
-            Text(settings.preset.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            TargetSizeControls(settings, entries, onChange)
+        when (settings.mode) {
+            Mode.Preset -> Text(settings.preset.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Mode.TargetSize -> TargetSizeControls(settings, entries, onChange)
+            Mode.Exact -> ExactControls(settings, onChange)
         }
     }
 }
@@ -358,18 +366,89 @@ private fun TargetSizeControls(settings: Settings, entries: List<Entry>, onChang
     }
 }
 
+/** Exact bitrate and resolution, for when a platform or player demands specific numbers. */
+@Composable
+private fun ExactControls(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
+    var kbpsText by remember { mutableStateOf(settings.exactKbps.toString()) }
+    var sideText by remember { mutableStateOf(settings.exactShortSide?.takeIf { it !in Planner.EXACT_SIDES }?.toString().orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Label("Video bitrate")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = kbpsText, singleLine = true, modifier = Modifier.width(140.dp), suffix = { Text("kbps") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                onValueChange = { t -> kbpsText = t.filter(Char::isDigit).take(6); kbpsText.toIntOrNull()?.let { v -> onChange { it.copy(exactKbps = v.coerceIn(Planner.MIN_EXACT_KBPS, Planner.MAX_EXACT_KBPS)) } } },
+            )
+            Spacer(Modifier.width(8.dp))
+            ChipRow {
+                listOf(1000, 2500, 5000, 8000).forEach { k ->
+                    FilterChip(selected = settings.exactKbps == k, onClick = { kbpsText = k.toString(); onChange { it.copy(exactKbps = k) } }, label = { Text("${k / 1000.0}".removeSuffix(".0") + "M") })
+                }
+            }
+        }
+        Label("Resolution (short side)")
+        ChipRow {
+            FilterChip(selected = settings.exactShortSide == null, onClick = { sideText = ""; onChange { it.copy(exactShortSide = null) } }, label = { Text("Original") })
+            Planner.EXACT_SIDES.forEach { side ->
+                FilterChip(selected = settings.exactShortSide == side, onClick = { sideText = ""; onChange { it.copy(exactShortSide = side) } }, label = { Text("${side}p") })
+            }
+        }
+        OutlinedTextField(
+            value = sideText, singleLine = true, modifier = Modifier.width(200.dp), label = { Text("Custom") }, suffix = { Text("px") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            onValueChange = { t -> sideText = t.filter(Char::isDigit).take(4); sideText.toIntOrNull()?.takeIf { it in 96..4320 }?.let { v -> onChange { it.copy(exactShortSide = v / 2 * 2) } } },
+        )
+        Text(
+            "Exactly what you set, even if it makes the file bigger. The other side follows the video's shape.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Crop and speed: edits that are wanted even when the file does not get smaller. */
+@Composable
+private fun EditSection(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Label("Crop")
+            ChipRow {
+                CropShape.entries.forEach { c -> FilterChip(selected = settings.crop == c, onClick = { onChange { it.copy(crop = c, cropOffset = 0f) } }, label = { Text(c.label) }) }
+            }
+            if (settings.crop != CropShape.Original) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Start", style = MaterialTheme.typography.labelMedium)
+                    Slider(settings.cropOffset, { v -> onChange { it.copy(cropOffset = v) } }, Modifier.weight(1f).padding(horizontal = 8.dp), valueRange = -1f..1f)
+                    Text("End", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            Label("Speed")
+            ChipRow {
+                Planner.SPEEDS.forEach { x ->
+                    FilterChip(selected = settings.speed == x, onClick = { onChange { it.copy(speed = x) } }, label = { Text(if (x == 1f) "Normal" else "${x}×".replace(".0×", "×")) })
+                }
+            }
+            Text(
+                if (settings.crop != CropShape.Original || settings.speed != 1f) "Slide the crop towards the start or end of the frame (left/right, or top/bottom). Sound keeps its pitch when the speed changes."
+                else "To add music or put several clips into one video, use Studio.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun AdvancedSection(settings: Settings, hevc: Boolean, av1: Boolean, onChange: ((Settings) -> Settings) -> Unit) {
     Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider()
-        Label("Codec")
+        Label("Output format")
         ChipRow {
             CodecChoice.entries.filter { it != CodecChoice.Hevc || hevc }.filter { it != CodecChoice.Av1 || av1 }.forEach { c ->
                 FilterChip(selected = settings.codec == c, onClick = { onChange { it.copy(codec = c) } }, label = { Text(c.label) })
             }
         }
         Text(
-            if (hevc) "Auto uses HEVC: about 30% smaller than H.264 at the same quality." else "This phone has no hardware HEVC encoder, so Squeeze uses H.264.",
+            "Every result is an MP4, from any video this phone can play (MOV, MKV, WebM, 3GP…). H.264 plays everywhere. " +
+                if (hevc) "Auto uses HEVC: about 30% smaller at the same quality." else "This phone has no hardware HEVC encoder, so Squeeze uses H.264.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Label("Maximum resolution")

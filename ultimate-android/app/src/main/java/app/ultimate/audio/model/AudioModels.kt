@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 
 enum class OutFormat(val label: String, val ext: String, val mime: String, val blurb: String) {
     Mp3("MP3", "mp3", "audio/mpeg", "Plays everywhere."),
-    M4a("M4A", "m4a", "audio/mp4", "The video's own audio, untouched and instant."),
+    M4a("M4A", "m4a", "audio/mp4", "AAC. Copied untouched and instantly when the source is already AAC and nothing else changes."),
     Wav("WAV", "wav", "audio/x-wav", "Uncompressed. Large, but ideal for editing."),
 }
 
@@ -17,6 +17,10 @@ data class AudioSettings(
     val trimStartMs: Long = 0,
     /** Exclusive end of the part to keep, or -1 for "to the end". */
     val trimEndMs: Long = -1,
+    /** Playback speed of the result; pitch is kept. */
+    val speed: Float = 1f,
+    /** Several inputs become one file, in the order given, instead of one file each. */
+    val join: Boolean = false,
 )
 
 /** What a video's audio track looks like. */
@@ -38,9 +42,11 @@ data class AudioSource(
 object AudioPlanner {
     val MP3_BITRATES = listOf(64, 96, 128, 192, 256, 320)
 
-    /** The format that will actually be produced: copying needs AAC, so anything else falls back to MP3. */
-    fun effectiveFormat(src: AudioSource, s: AudioSettings): OutFormat =
-        if (s.format == OutFormat.M4a && !src.canCopy) OutFormat.Mp3 else s.format
+    val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+
+    /** AAC frames can be copied unchanged only when nothing about the sound changes. */
+    fun copies(src: AudioSource, s: AudioSettings): Boolean =
+        s.format == OutFormat.M4a && src.canCopy && s.speed == 1f && !s.mono && !s.join
 
     /** Milliseconds that will be kept after trimming. */
     fun keptMs(src: AudioSource, s: AudioSettings): Long {
@@ -48,16 +54,26 @@ object AudioPlanner {
         return max(end - s.trimStartMs.coerceAtLeast(0), 0)
     }
 
+    /** Length of the result: the kept part, played at [AudioSettings.speed]. */
+    fun outputMs(src: AudioSource, s: AudioSettings): Long = (keptMs(src, s) / s.speed.toDouble()).toLong()
+
     fun outputChannels(src: AudioSource, s: AudioSettings): Int = if (s.mono || src.channels <= 1) 1 else 2
 
+    /** Channels of a joined file: stereo if any input is, unless mono was asked for. */
+    fun outputChannels(sources: List<AudioSource>, s: AudioSettings): Int = if (s.mono || sources.all { it.channels <= 1 }) 1 else 2
+
     fun estimateBytes(src: AudioSource, s: AudioSettings): Long {
-        val seconds = keptMs(src, s) / 1000.0
-        return when (effectiveFormat(src, s)) {
-            OutFormat.Mp3 -> (s.kbps * 1000 / 8.0 * seconds).toLong()
-            OutFormat.M4a -> ((if (src.bitrate > 0) src.bitrate else 128_000) / 8.0 * seconds).toLong()
-            OutFormat.Wav -> (src.sampleRate * outputChannels(src, s) * 2.0 * seconds).toLong() + 44
+        val seconds = outputMs(src, s) / 1000.0
+        return when {
+            copies(src, s) -> ((if (src.bitrate > 0) src.bitrate else 128_000) / 8.0 * seconds).toLong()
+            s.format == OutFormat.Mp3 -> (s.kbps * 1000 / 8.0 * seconds).toLong()
+            s.format == OutFormat.M4a -> (aacKbps(s.kbps) * 1000 / 8.0 * seconds).toLong()
+            else -> (encoderRate(src.sampleRate) * outputChannels(src, s) * 2.0 * seconds).toLong() + 44
         }
     }
+
+    /** Phone AAC encoders top out around 256 kbps for stereo. */
+    fun aacKbps(kbps: Int) = kbps.coerceAtMost(256)
 
     fun bitrateLabel(kbps: Int) = when (kbps) {
         64 -> "Voice"
@@ -69,10 +85,13 @@ object AudioPlanner {
         else -> ""
     }
 
-    /** Sample rates the MP3 encoder accepts; anything else is resampled to 44.1 kHz. */
-    val MP3_RATES = setOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
+    /** Sample rates the MP3 and AAC encoders accept; anything else is resampled to 44.1 kHz. */
+    val ENCODER_RATES = setOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
 
-    fun mp3Rate(sourceRate: Int): Int = if (sourceRate in MP3_RATES) sourceRate else 44100
+    fun encoderRate(sourceRate: Int): Int = if (sourceRate in ENCODER_RATES) sourceRate else 44100
+
+    /** Name for a joined file, from the first input. */
+    fun joinedName(first: String, count: Int): String = "${first.substringBeforeLast('.', first)} + ${count - 1} more"
 
     fun peakBuckets(): Int = 160
 }

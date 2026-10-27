@@ -60,6 +60,9 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -107,6 +110,9 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
     val withConsent = rememberNotificationConsent()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { c.add(it) }
     val onPick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
+    // Audio files are not in the photo picker, so they come from the document picker.
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { c.add(it) }
+    val onPickAudio = { audioPicker.launch(arrayOf("audio/*")) }
 
     LaunchedEffect(launch) {
         if (!launch.consumed) {
@@ -118,17 +124,17 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
     when {
         queue.jobs.isNotEmpty() -> RunScreen(queue, c.log, onCancel = c::cancel, onDone = c::dismissResults)
         picked.isNotEmpty() || probing > 0 -> ConfigureScreen(
-            picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onRemove = c::remove, onBack = c::clear,
-            onStart = { withConsent { c.start() } },
+            picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onAddAudio = onPickAudio, onRemove = c::remove, onMoveUp = c::moveUp,
+            onBack = c::clear, onStart = { withConsent { c.start() } },
         )
-        else -> HomeScreen(tool, onPick, onExit)
+        else -> HomeScreen(tool, onPick, onPickAudio, onExit)
     }
 }
 
 // ───────────────────────────── Home ─────────────────────────────
 
 @Composable
-private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onExit: () -> Unit) {
+private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onPickAudio: () -> Unit, onExit: () -> Unit) {
     BackHandler(onBack = onExit)
     val phase by rememberInfiniteTransition(label = "wave").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "phase")
     val demo = remember(phase) {
@@ -145,7 +151,7 @@ private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onExit:
             Spacer(Modifier.height(16.dp))
             Text("Video to audio", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Pull the sound out of any video as MP3, M4A or WAV. Trim it first if you only want part.",
+                "Pull the sound out of videos, or cut, convert, speed up and join audio files. MP3, M4A or WAV.",
                 style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(20.dp))
@@ -153,6 +159,12 @@ private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onExit:
                 Icon(Icons.Rounded.Add, null)
                 Spacer(Modifier.width(10.dp))
                 Text("Choose videos", style = MaterialTheme.typography.titleMedium)
+            }
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(onClick = onPickAudio, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(20.dp)) {
+                Icon(Icons.Rounded.MusicNote, null)
+                Spacer(Modifier.width(10.dp))
+                Text("Choose audio files", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(20.dp))
             RecentResults(tool, "Recent conversions", onOpenOwn = {}, limit = 6)
@@ -171,23 +183,29 @@ private fun ConfigureScreen(
     settings: AudioSettings,
     onChange: ((AudioSettings) -> AudioSettings) -> Unit,
     onAdd: () -> Unit,
+    onAddAudio: () -> Unit,
     onRemove: (Uri) -> Unit,
+    onMoveUp: (Uri) -> Unit,
     onBack: () -> Unit,
     onStart: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val usable = picked.filter { it.audio != null }
     val single = usable.size == 1
-    val effective = if (single) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
+    val joining = settings.join && usable.size > 1
+    val effective = (if (single) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)).copy(join = joining)
     val total = usable.sumOf { AudioPlanner.estimateBytes(it.audio!!, effective) }
-    val anyCopyable = usable.any { it.audio!!.canCopy }
+    val anyCopyable = usable.any { AudioPlanner.copies(it.audio!!, effective) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (picked.size == 1) "1 video" else "${picked.size} videos") },
+                title = { Text(if (picked.size == 1) "1 file" else "${picked.size} files") },
                 navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } },
-                actions = { IconButton(onAdd) { Icon(Icons.Rounded.Add, "Add videos") } },
+                actions = {
+                    IconButton(onAddAudio) { Icon(Icons.Rounded.MusicNote, "Add audio files") }
+                    IconButton(onAdd) { Icon(Icons.Rounded.Add, "Add videos") }
+                },
             )
         },
         bottomBar = {
@@ -198,10 +216,11 @@ private fun ConfigureScreen(
                 ) {
                     Text(
                         when {
-                            probing -> "Reading videos…"
+                            probing -> "Reading files…"
                             usable.isEmpty() -> "No audio to convert"
-                            usable.size == 1 -> "Convert to ${AudioPlanner.effectiveFormat(usable[0].audio!!, effective).label}"
-                            else -> "Convert ${usable.size} videos"
+                            joining -> "Join ${usable.size} into one ${settings.format.label}"
+                            usable.size == 1 -> "Convert to ${settings.format.label}"
+                            else -> "Convert ${usable.size} files"
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -210,10 +229,22 @@ private fun ConfigureScreen(
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { EstimateCard(total, usable.size) }
+            item { EstimateCard(total, if (joining) 1 else usable.size) }
             item { FormatSection(settings, anyCopyable, onChange) }
+            item { SpeedSection(settings, onChange) }
             if (single) item { TrimSection(usable[0].audio!!, settings, onChange) }
-            items(picked, key = { it.uri.toString() }) { VideoRow(it, effective, onRemove = { onRemove(it.uri) }) }
+            if (usable.size > 1) item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Join into one file", style = MaterialTheme.typography.bodyLarge)
+                        Text("Plays them back to back, in the order below.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(settings.join, { v -> onChange { it.copy(join = v) } })
+                }
+            }
+            itemsIndexed(picked, key = { _, v -> v.uri.toString() }) { i, v ->
+                VideoRow(v, effective, onRemove = { onRemove(v.uri) }, onMoveUp = if (joining && i > 0) ({ onMoveUp(v.uri) }) else null)
+            }
             if (probing) item { Box(Modifier.fillMaxWidth().padding(8.dp), Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp)) } }
         }
     }
@@ -249,13 +280,13 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
             }
         }
         Text(settings.format.blurb, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (settings.format == OutFormat.M4a && !anyCopyable) {
+        if (settings.format == OutFormat.M4a && anyCopyable) {
             Text(
-                "These videos don't use AAC audio, so they'll be converted to MP3 instead.",
+                "AAC audio will be copied untouched, so the quality setting does not apply to it.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary,
             )
         }
-        if (settings.format == OutFormat.Mp3 || (settings.format == OutFormat.M4a && !anyCopyable)) {
+        if (settings.format != OutFormat.Wav) {
             Text("Quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AudioPlanner.MP3_BITRATES.forEach { k ->
@@ -267,7 +298,7 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (settings.format != OutFormat.M4a) {
+        run {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Mono", style = MaterialTheme.typography.bodyLarge)
@@ -275,6 +306,24 @@ private fun FormatSection(settings: AudioSettings, anyCopyable: Boolean, onChang
                 }
                 Switch(settings.mono, { v -> onChange { it.copy(mono = v) } })
             }
+        }
+    }
+}
+
+@Composable
+private fun SpeedSection(settings: AudioSettings, onChange: ((AudioSettings) -> AudioSettings) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Speed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AudioPlanner.SPEEDS.forEach { x ->
+                FilterChip(selected = settings.speed == x, onClick = { onChange { it.copy(speed = x) } }, label = { Text(if (x == 1f) "Normal" else "${x}×") })
+            }
+        }
+        if (settings.speed != 1f) {
+            Text(
+                "Pitch stays the same, so voices don't sound like chipmunks.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -300,7 +349,7 @@ private fun TrimSection(src: AudioSource, settings: AudioSettings, onChange: ((A
 }
 
 @Composable
-private fun VideoRow(video: PickedVideo, settings: AudioSettings, onRemove: () -> Unit) {
+private fun VideoRow(video: PickedVideo, settings: AudioSettings, onRemove: () -> Unit, onMoveUp: (() -> Unit)? = null) {
     val src = video.audio
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         VideoThumb(video.uri, Modifier.size(64.dp).clip(RoundedCornerShape(14.dp)), src?.durationMs ?: 0)
@@ -311,13 +360,14 @@ private fun VideoRow(video: PickedVideo, settings: AudioSettings, onRemove: () -
                 Text("No audio track", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             } else {
                 Text(sourceSummary(src), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                val format = AudioPlanner.effectiveFormat(src, settings)
                 Text(
-                    "→ ${format.label} · ≈ ${formatBytes(AudioPlanner.estimateBytes(src, settings))}",
+                    if (settings.join) "→ part of the joined file · ${formatDuration(AudioPlanner.outputMs(src, settings))}"
+                    else "→ ${settings.format.label}${if (AudioPlanner.copies(src, settings)) " (copied)" else ""} · ≈ ${formatBytes(AudioPlanner.estimateBytes(src, settings))}",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
                 )
             }
         }
+        onMoveUp?.let { IconButton(it) { Icon(Icons.Rounded.KeyboardArrowUp, "Move up") } }
         IconButton(onRemove) { Icon(Icons.Rounded.Close, "Remove") }
     }
 }

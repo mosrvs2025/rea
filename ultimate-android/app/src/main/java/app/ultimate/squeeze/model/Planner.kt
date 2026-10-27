@@ -14,7 +14,25 @@ enum class Codec(val mime: String, val label: String, val efficiency: Double) {
 
 enum class CodecChoice(val label: String) { Auto("Auto"), H264("H.264"), Hevc("HEVC"), Av1("AV1") }
 
-enum class Mode { Preset, TargetSize }
+enum class Mode { Preset, TargetSize, Exact }
+
+/** Centre crops to a shape. [ratio] is width / height; null keeps the whole frame. */
+enum class CropShape(val label: String, val ratio: Double?) {
+    Original("Original", null), Square("1:1", 1.0), Portrait("9:16", 9.0 / 16), Tall("4:5", 4.0 / 5), Wide("16:9", 16.0 / 9), Classic("4:3", 4.0 / 3),
+}
+
+/**
+ * The part of the frame to keep, as fractions of the width and height. [offset] slides it along the side that is cut,
+ * from -1 (left or top edge) through 0 (centre) to 1 (right or bottom edge).
+ */
+data class CropBox(val widthFraction: Double, val heightFraction: Double, val offset: Double = 0.0) {
+    /** Edges in normalised device coordinates (-1..1, y up), as Media3's Crop effect takes them. */
+    fun ndc(): FloatArray {
+        val cx = if (widthFraction < 1) offset * (1 - widthFraction) else 0.0
+        val cy = if (heightFraction < 1) -offset * (1 - heightFraction) else 0.0
+        return floatArrayOf((cx - widthFraction).toFloat(), (cx + widthFraction).toFloat(), (cy - heightFraction).toFloat(), (cy + heightFraction).toFloat())
+    }
+}
 
 /**
  * Quality tiers. [bpp] is the H.264-equivalent bits per pixel per frame at 1080p; the planner scales it by
@@ -40,7 +58,19 @@ data class Settings(
     val maxShortSide: Int? = null,
     val maxFps: Int? = null,
     val muteAudio: Boolean = false,
-)
+    /** Playback speed of the result (0.25–4); pitch is kept. */
+    val speed: Float = 1f,
+    val crop: CropShape = CropShape.Original,
+    /** Where the crop sits along the cut side: -1 start, 0 centre, 1 end. */
+    val cropOffset: Float = 0f,
+    /** Exact mode: video bitrate in kbit/s. */
+    val exactKbps: Int = 2500,
+    /** Exact mode: short side in pixels (e.g. 720 for 1280×720), or null to keep the source's. */
+    val exactShortSide: Int? = null,
+) {
+    /** Anything beyond compression: the result is wanted even if it is not much smaller. */
+    val edits: Boolean get() = speed != 1f || crop != CropShape.Original || mode == Mode.Exact
+}
 
 /** Which encoders this device offers in hardware. H.264 is assumed everywhere. */
 data class Capabilities(val hevc: Boolean, val av1: Boolean)
@@ -74,6 +104,8 @@ data class Plan(
     /** Non-null when re-encoding is not worthwhile; the original is kept. */
     val skipReason: String? = null,
     val warning: String? = null,
+    val crop: CropBox? = null,
+    val speed: Float = 1f,
 ) {
     val shortSide: Int get() = min(width, height)
 }
@@ -97,6 +129,22 @@ object Planner {
     private const val DEFAULT_AUDIO_BPS = 128_000
     private const val TARGET_FLOOR_BPP = 0.045
     private val LADDER = intArrayOf(2160, 1440, 1080, 720, 540, 480, 360, 240)
+    val SPEEDS = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f)
+    val EXACT_SIDES = listOf(2160, 1440, 1080, 720, 480, 360)
+    const val MIN_EXACT_KBPS = 100
+    const val MAX_EXACT_KBPS = 100_000
+
+    /** Centre crop for [shape] on a frame of [width]×[height], or null when nothing is cut. */
+    fun cropBox(width: Int, height: Int, shape: CropShape, offset: Float = 0f): CropBox? {
+        val r = shape.ratio ?: return null
+        val source = width.toDouble() / height
+        val o = offset.coerceIn(-1f, 1f).toDouble()
+        return when {
+            source > r * 1.001 -> CropBox(r / source, 1.0, o)
+            source < r / 1.001 -> CropBox(1.0, source / r, o)
+            else -> null
+        }
+    }
 
     fun resolveCodec(choice: CodecChoice, caps: Capabilities): Codec = when (choice) {
         CodecChoice.H264 -> Codec.H264
@@ -104,7 +152,26 @@ object Planner {
         CodecChoice.Hevc, CodecChoice.Auto -> if (caps.hevc) Codec.HEVC else Codec.H264
     }
 
-    fun plan(src: Source, s: Settings, caps: Capabilities): Plan {
+    fun plan(original: Source, s: Settings, caps: Capabilities): Plan {
+        val crop = cropBox(original.width, original.height, s.crop, s.cropOffset)
+        val speed = s.speed.coerceIn(0.25f, 4f)
+        // Plan against what will be encoded: the cropped frame, lasting duration / speed.
+        val src = original.copy(
+            width = crop?.let { (original.width * it.widthFraction).toInt() } ?: original.width,
+            height = crop?.let { (original.height * it.heightFraction).toInt() } ?: original.height,
+            durationMs = (original.durationMs / speed).toLong(),
+        )
+        val base = planFor(src, s, caps)
+        if (!s.edits) return base
+        // Edits are wanted even when they barely shrink the file; and when sped up, frames are dropped back to the source rate.
+        val fps = base.fps ?: if (speed > 1f) original.fps.coerceIn(1f, 60f).roundToInt() else null
+        return base.copy(
+            crop = crop, speed = speed, fps = fps, resize = true, skipReason = null,
+            estimatedBytes = ((base.videoBitrate + base.audioBitrate) * (src.durationMs / 1000.0) / 8).toLong(),
+        )
+    }
+
+    private fun planFor(src: Source, s: Settings, caps: Capabilities): Plan {
         val codec = resolveCodec(s.codec, caps)
         val audioBps = when {
             !src.hasAudio || s.muteAudio -> 0
@@ -115,7 +182,24 @@ object Planner {
         return when (s.mode) {
             Mode.Preset -> byPreset(src, s, codec, audioBps, seconds)
             Mode.TargetSize -> byTarget(src, s, codec, audioBps, seconds)
+            Mode.Exact -> byExact(src, s, codec, audioBps, seconds)
         }
+    }
+
+    /** Exactly the bitrate and resolution asked for, without second-guessing. */
+    private fun byExact(src: Source, s: Settings, codec: Codec, audioBps: Int, seconds: Double): Plan {
+        val (w, h) = s.exactShortSide?.let { side -> exactSize(src, side) } ?: (evenRound(src.width.toDouble()) to evenRound(src.height.toDouble()))
+        val fps = s.maxFps?.let { effectiveFps(src, it) }
+        val video = s.exactKbps.coerceIn(MIN_EXACT_KBPS, MAX_EXACT_KBPS) * 1000
+        val warning = if (src.videoBitrate in 1 until video) "That is more than the original spends (${src.videoBitrate / 1000} kbps), so the file will grow without looking better" else null
+        val plan = Plan(codec, w, h, true, fps, video, audioBps, ((video + audioBps) * seconds / 8).toLong(), null, warning)
+        return plan
+    }
+
+    /** Scales to exactly [shortSide] on the short edge (up or down), keeping the shape. */
+    fun exactSize(src: Source, shortSide: Int): Pair<Int, Int> {
+        val k = shortSide.toDouble() / src.shortSide
+        return evenRound(src.width * k) to evenRound(src.height * k)
     }
 
     private fun byPreset(src: Source, s: Settings, codec: Codec, audioBps: Int, seconds: Double): Plan {

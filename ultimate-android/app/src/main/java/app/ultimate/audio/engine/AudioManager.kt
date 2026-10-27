@@ -38,7 +38,11 @@ sealed interface AudioStatus {
     data object Cancelled : AudioStatus
 }
 
-data class AudioJob(val id: Int, val uri: Uri, val name: String, val source: AudioSource, val status: AudioStatus = AudioStatus.Queued)
+/** One output file: a single input, or several joined in order. [source] describes the first input, for thumbnails. */
+data class AudioJob(val id: Int, val inputs: List<ConvertInput>, val name: String, val status: AudioStatus = AudioStatus.Queued) {
+    val uri: Uri get() = inputs.first().uri
+    val source: AudioSource get() = inputs.first().source
+}
 
 data class AudioQueue(val jobs: List<AudioJob> = emptyList(), val active: Boolean = false) {
     val done: List<AudioEntry> get() = jobs.mapNotNull { (it.status as? AudioStatus.Done)?.entry }
@@ -80,18 +84,22 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
 
     fun submit(videos: List<PickedVideo>, settings: AudioSettings) {
         if (_state.value.active) return
-        val jobs = videos.mapNotNull { v -> v.audio?.let { AudioJob(0, v.uri, v.name, it) } }.mapIndexed { i, j -> j.copy(id = i) }
-        if (jobs.isEmpty()) return
+        val inputs = videos.mapNotNull { v -> v.audio?.let { ConvertInput(v.uri, v.name, it) } }
+        if (inputs.isEmpty()) return
+        val join = settings.join && inputs.size > 1
+        val jobs = if (join) listOf(AudioJob(0, inputs, AudioPlanner.joinedName(inputs[0].name, inputs.size)))
+        else inputs.mapIndexed { i, input -> AudioJob(i, listOf(input), input.name) }
         _state.value = AudioQueue(jobs, active = true)
         log.reset()
         log.info(
-            "Video to audio · ${jobs.size} file${if (jobs.size == 1) "" else "s"} · ${settings.format.label}" +
-                (if (settings.format == OutFormat.Mp3) " ${settings.kbps} kbps" else "") + if (settings.mono) " · mono" else "",
+            "Audio · ${inputs.size} file${if (inputs.size == 1) "" else "s"}${if (join) " joined into one" else ""} · ${settings.format.label}" +
+                (if (settings.format != OutFormat.Wav) " ${settings.kbps} kbps" else "") + (if (settings.mono) " · mono" else "") +
+                if (settings.speed != 1f) " · ${settings.speed}×" else "",
         )
         videos.filter { it.audio == null }.forEach { log.warn("skip ${it.name}: no audio track") }
         hub.start()
-        // Trimming only makes sense for a single video, so it is ignored for batches.
-        val effective = if (jobs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
+        // Trimming only makes sense for a single file, so it is ignored for batches and joins.
+        val effective = if (inputs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)
         runner = scope.launch { runAll(effective) }
     }
 
@@ -111,11 +119,10 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
                 val started = SystemClock.elapsedRealtime()
                 ticker.reset()
                 log.info("▶ ${job.name}")
-                if (AudioPlanner.effectiveFormat(job.source, settings) != settings.format) log.warn("  note    audio is ${job.source.mime.substringAfter('/')}, not AAC, so it becomes MP3")
                 val status = try {
                     update(i, AudioStatus.Running(0f, emptyList(), null))
-                    val kept = AudioPlanner.keptMs(job.source, settings)
-                    val out = converter.convert(job.uri, job.name, job.source, settings, log) { fraction, peaks ->
+                    val kept = job.inputs.sumOf { AudioPlanner.keptMs(it.source, settings) }
+                    val out = converter.convert(job.inputs, settings, log) { fraction, peaks ->
                         val elapsed = SystemClock.elapsedRealtime() - started
                         val speed = if (fraction > 0.03f && elapsed > 0) kept * fraction / elapsed else null
                         update(i, AudioStatus.Running(fraction, peaks, speed))

@@ -38,6 +38,12 @@ class AudioController(private val app: UltimateApp) {
 
     fun remove(uri: Uri) = picked.update { list -> list.filterNot { it.uri == uri } }
 
+    /** Moves a file one place earlier, for the order of a joined file. */
+    fun moveUp(uri: Uri) = picked.update { list ->
+        val i = list.indexOfFirst { it.uri == uri }
+        if (i <= 0) list else list.toMutableList().apply { add(i - 1, removeAt(i)) }
+    }
+
     fun clear() {
         picked.value = emptyList()
     }
@@ -47,7 +53,7 @@ class AudioController(private val app: UltimateApp) {
     fun start() {
         manager.submit(picked.value, settings.value)
         picked.value = emptyList()
-        // Trim points belong to one video; do not carry them into the next pick.
+        // Trim points belong to one file; do not carry them into the next pick.
         settings.update { it.copy(trimStartMs = 0, trimEndMs = -1) }
     }
 

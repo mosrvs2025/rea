@@ -14,9 +14,57 @@ class AudioModelsTest {
     private val aac = AudioSource(durationMs = 180_000, mime = "audio/mp4a-latm", sampleRate = 44100, channels = 2, bitrate = 128_000)
     private val opus = aac.copy(mime = "audio/opus", sampleRate = 48000)
 
-    @Test fun m4aFallsBackToMp3ForNonAac() {
-        assertEquals(OutFormat.M4a, AudioPlanner.effectiveFormat(aac, AudioSettings(format = OutFormat.M4a)))
-        assertEquals(OutFormat.Mp3, AudioPlanner.effectiveFormat(opus, AudioSettings(format = OutFormat.M4a)))
+    @Test fun aacIsCopiedOnlyWhenNothingAboutTheSoundChanges() {
+        val m4a = AudioSettings(format = OutFormat.M4a)
+        assertTrue(AudioPlanner.copies(aac, m4a))
+        assertTrue("non-AAC is encoded to AAC, not swapped for MP3", !AudioPlanner.copies(opus, m4a))
+        assertTrue(!AudioPlanner.copies(aac, m4a.copy(speed = 1.5f)))
+        assertTrue(!AudioPlanner.copies(aac, m4a.copy(mono = true)))
+        assertTrue(!AudioPlanner.copies(aac, m4a.copy(join = true)))
+        assertTrue(!AudioPlanner.copies(aac, AudioSettings(format = OutFormat.Mp3)))
+    }
+
+    @Test fun m4aEncodeIsSizedByTheChosenBitrateCappedForAac() {
+        assertEquals(128_000 / 8L * 180, AudioPlanner.estimateBytes(opus, AudioSettings(format = OutFormat.M4a, kbps = 128)))
+        assertEquals(256_000 / 8L * 180, AudioPlanner.estimateBytes(opus, AudioSettings(format = OutFormat.M4a, kbps = 320)))
+    }
+
+    @Test fun speedChangesTheLengthAndSize() {
+        assertEquals(90_000, AudioPlanner.outputMs(aac, AudioSettings(speed = 2f)))
+        assertEquals(360_000, AudioPlanner.outputMs(aac, AudioSettings(speed = 0.5f)))
+        assertEquals(192_000 / 8L * 90, AudioPlanner.estimateBytes(aac, AudioSettings(kbps = 192, speed = 2f)))
+    }
+
+    @Test fun joinedFilesAreStereoIfAnyInputIsAndNamedAfterTheFirst() {
+        val mono = aac.copy(channels = 1)
+        assertEquals(2, AudioPlanner.outputChannels(listOf(mono, aac), AudioSettings()))
+        assertEquals(1, AudioPlanner.outputChannels(listOf(mono, mono), AudioSettings()))
+        assertEquals(1, AudioPlanner.outputChannels(listOf(aac, aac), AudioSettings(mono = true)))
+        assertEquals("intro + 2 more", AudioPlanner.joinedName("intro.mp3", 3))
+    }
+
+    @Test fun stretchingKeepsSampleCountProportionalToSpeed() {
+        fun stretched(speed: Float): Int {
+            val rate = 44100
+            val s = app.ultimate.audio.model.Stretcher(rate, 2, speed)
+            var total = 0
+            val chunk = ShortArray(4410 * 2)
+            repeat(20) { block ->
+                for (f in 0 until 4410) {
+                    val v = (Math.sin(2 * Math.PI * 440 * (block * 4410 + f) / rate) * 12000).toInt().toShort()
+                    chunk[2 * f] = v; chunk[2 * f + 1] = v
+                }
+                total += s.process(chunk, chunk.size).second
+            }
+            total += s.finish().second
+            return total / 2
+        }
+        val input = 20 * 4410
+        listOf(2f, 0.5f, 1.5f).forEach { x ->
+            val frames = stretched(x)
+            val expected = input / x
+            assertTrue("$x×: $frames frames, expected about $expected", kotlin.math.abs(frames - expected) < expected * 0.03)
+        }
     }
 
     @Test fun mp3SizeFollowsBitrateAndTrim() {
@@ -37,8 +85,8 @@ class AudioModelsTest {
     }
 
     @Test fun oddSampleRatesAreResampledForMp3() {
-        assertEquals(48000, AudioPlanner.mp3Rate(48000))
-        assertEquals(44100, AudioPlanner.mp3Rate(96000))
+        assertEquals(48000, AudioPlanner.encoderRate(48000))
+        assertEquals(44100, AudioPlanner.encoderRate(96000))
     }
 
     @Test fun downmixAveragesStereoToMono() {

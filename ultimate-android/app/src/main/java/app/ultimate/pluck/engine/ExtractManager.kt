@@ -7,6 +7,7 @@ import app.ultimate.core.formatBytes
 import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.model.FileNames
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -70,13 +71,13 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
     }
     private var runner: Job? = null
 
-    fun submit(apps: List<AppItem>, compact: Boolean) {
+    fun submit(apps: List<AppItem>, compact: Boolean, nameTemplate: String = FileNames.DEFAULT) {
         if (_state.value.active || apps.isEmpty()) return
         _state.value = ExtractState(apps.map { ExtractJob(it) }, active = true)
         log.reset()
         log.info("Pluck · ${apps.size} app${if (apps.size == 1) "" else "s"} · ${formatBytes(apps.sumOf { it.apkBytes })} · ${if (compact) "compact" else "APK"}")
         hub.start()
-        runner = scope.launch { runAll(compact) }
+        runner = scope.launch { runAll(compact, nameTemplate) }
     }
 
     fun cancel() {
@@ -88,14 +89,14 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
         if (!_state.value.active) _state.value = ExtractState()
     }
 
-    private suspend fun runAll(compact: Boolean) {
+    private suspend fun runAll(compact: Boolean, nameTemplate: String) {
         try {
             for (i in _state.value.jobs.indices) {
                 val job = _state.value.jobs[i]
                 log.info("▶ ${job.app.label} ${job.app.versionName} (${job.app.packageName})")
                 val status = try {
                     update(i, JobStatus.Running(0, job.app.apkBytes))
-                    val out = extractor.extract(job.app, compact, log) { done, total -> update(i, JobStatus.Running(done, total)) }
+                    val out = extractor.extract(job.app, compact, nameTemplate, log) { done, total -> update(i, JobStatus.Running(done, total)) }
                     log.ok("  saved   Download/Pluck/${out.displayName} · ${formatBytes(out.bytes)}")
                     val entry = SavedEntry(
                         UUID.randomUUID().toString(), System.currentTimeMillis(), job.app.packageName, job.app.label, job.app.versionName,

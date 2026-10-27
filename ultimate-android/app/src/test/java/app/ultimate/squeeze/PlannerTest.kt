@@ -20,6 +20,44 @@ class PlannerTest {
         videoBitrate = videoBps, audioBitrate = 128_000, hasAudio = true, isHdr = false, mime = mime,
     )
 
+    @Test fun cropToSquareKeepsTheShortSideAndIsAlwaysEncoded() {
+        val plan = Planner.plan(phoneClip(), Settings(crop = CropShape.Square), hevc)
+        assertNull(plan.skipReason)
+        assertEquals(plan.width, plan.height)
+        assertEquals(1080, plan.width)
+        val box = plan.crop!!
+        assertEquals(1080.0 / 1920, box.widthFraction, 1e-9)
+        assertEquals(1.0, box.heightFraction, 1e-9)
+    }
+
+    @Test fun cropPositionSlidesTheBoxWithoutLeavingTheFrame() {
+        val left = Planner.cropBox(1920, 1080, CropShape.Square, -1f)!!.ndc()
+        assertEquals(-1f, left[0], 1e-6f)
+        val right = Planner.cropBox(1920, 1080, CropShape.Square, 1f)!!.ndc()
+        assertEquals(1f, right[1], 1e-6f)
+        val top = Planner.cropBox(1080, 1920, CropShape.Square, -1f)!!.ndc()
+        assertEquals("top is +1 in NDC", 1f, top[3], 1e-6f)
+        assertNull(Planner.cropBox(1920, 1080, CropShape.Wide))
+    }
+
+    @Test fun speedShortensTheResultAndCapsTheFrameRate() {
+        val src = phoneClip(fps = 30f)
+        val normal = Planner.plan(src, Settings(mode = Mode.Exact, exactKbps = 4000), hevc)
+        val fast = Planner.plan(src, Settings(mode = Mode.Exact, exactKbps = 4000, speed = 2f), hevc)
+        assertEquals(2f, fast.speed)
+        assertEquals(normal.estimatedBytes / 2.0, fast.estimatedBytes.toDouble(), normal.estimatedBytes / 100.0)
+        assertEquals("frames dropped back to the source rate", 30, fast.fps)
+    }
+
+    @Test fun exactModeUsesTheNumbersGivenEvenUpscaling() {
+        val small = phoneClip(width = 1280, height = 720, videoBps = 1_000_000)
+        val plan = Planner.plan(small, Settings(mode = Mode.Exact, exactKbps = 6000, exactShortSide = 1080), hevc)
+        assertEquals(6_000_000, plan.videoBitrate)
+        assertEquals(1920 to 1080, plan.width to plan.height)
+        assertNull(plan.skipReason)
+        assertNotNull("warns that it will only grow", plan.warning)
+    }
+
     @Test fun balancedUsesHevcAndShrinksPhoneFootageDramatically() {
         val src = phoneClip()
         val plan = Planner.plan(src, Settings(), hevc)

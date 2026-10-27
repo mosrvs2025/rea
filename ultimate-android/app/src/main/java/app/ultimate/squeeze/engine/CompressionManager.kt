@@ -17,6 +17,7 @@ import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import app.ultimate.core.formatBytes
 import app.ultimate.squeeze.model.LibraryEntry
+import app.ultimate.squeeze.model.CropShape
 import app.ultimate.squeeze.model.Mode
 import app.ultimate.squeeze.model.Plan
 import app.ultimate.squeeze.model.Planner
@@ -201,9 +202,14 @@ class CompressionManager(private val app: Context, private val library: LibraryS
             sizeBytes = outBytes, width = job.plan.width, height = job.plan.height,
             videoBitrate = job.plan.videoBitrate, mime = job.plan.codec.mime,
         )
-        val hasFrames = library.saveFrames(id, job.uri, output, job.source.durationMs)
-        val clipStart = library.saveClip(id, job.uri, job.source.durationMs)
-        val mode = if (settings.mode == Mode.Preset) settings.preset.label else "≤ ${settings.targetMb} MB"
+        // Before/after views line the two videos up in time and space; after a speed change or crop they would not match, so skip them.
+        val hasFrames = job.plan.speed == 1f && library.saveFrames(id, job.uri, output, job.source.durationMs)
+        val clipStart = if (job.plan.speed == 1f && job.plan.crop == null) library.saveClip(id, job.uri, job.source.durationMs) else -1L
+        val mode = when (settings.mode) {
+            Mode.Preset -> settings.preset.label
+            Mode.TargetSize -> "≤ ${settings.targetMb} MB"
+            Mode.Exact -> "${settings.exactKbps} kbps"
+        } + (if (job.plan.crop != null) " · ${settings.crop.label}" else "") + if (job.plan.speed != 1f) " · ${job.plan.speed}×" else ""
         library.add(
             LibraryEntry(id, System.currentTimeMillis(), job.name, output.toString(), job.source, after, encodeMs, job.plan.estimatedBytes, "$mode · ${job.plan.codec.label}", hasFrames, clipStart),
         )
@@ -215,7 +221,11 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     }
 
     private fun settingsLine(s: Settings) =
-        (if (s.mode == Mode.Preset) s.preset.label else "target ≤ ${s.targetMb} MB") + " · codec ${s.codec.label}" +
+        when (s.mode) {
+            Mode.Preset -> s.preset.label
+            Mode.TargetSize -> "target ≤ ${s.targetMb} MB"
+            Mode.Exact -> "exact ${s.exactKbps} kbps" + (s.exactShortSide?.let { " at ${it}p" } ?: "")
+        } + " · codec ${s.codec.label}" + (if (s.crop != CropShape.Original) " · crop ${s.crop.label}" else "") + (if (s.speed != 1f) " · ${s.speed}×" else "") +
             (s.maxShortSide?.let { " · ≤${it}p" } ?: "") + (s.maxFps?.let { " · ≤$it fps" } ?: "") + if (s.muteAudio) " · no audio" else ""
 
     private fun sourceLine(s: Source) =

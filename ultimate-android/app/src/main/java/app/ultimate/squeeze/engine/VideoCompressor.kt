@@ -8,7 +8,11 @@ import android.os.Looper
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.effect.Crop
 import androidx.media3.effect.FrameDropEffect
+import androidx.media3.effect.SpeedChangeEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
@@ -86,13 +90,17 @@ class VideoCompressor(private val context: Context) {
                 })
                 .build()
 
+            // Order matters: cut the frame, scale it, change its timing, then drop frames that speeding up would add.
             val effects = buildList<Effect> {
-                plan.fps?.let { add(FrameDropEffect.createDefaultFrameDropEffect(it.toFloat())) }
+                plan.crop?.let { c -> c.ndc().let { (l, r, b, t) -> add(Crop(l, r, b, t)) } }
                 if (plan.resize) add(Presentation.createForWidthAndHeight(plan.width, plan.height, Presentation.LAYOUT_SCALE_TO_FIT))
+                if (plan.speed != 1f) add(SpeedChangeEffect(plan.speed))
+                plan.fps?.let { add(FrameDropEffect.createDefaultFrameDropEffect(it.toFloat())) }
             }
+            val audio = if (plan.speed != 1f && !muteAudio) listOf<AudioProcessor>(SonicAudioProcessor().apply { setSpeed(plan.speed); setPitch(1f) }) else emptyList()
             val item = EditedMediaItem.Builder(MediaItem.fromUri(input))
                 .setRemoveAudio(muteAudio)
-                .setEffects(Effects(emptyList(), effects))
+                .setEffects(Effects(audio, effects))
                 .build()
             val composition = Composition.Builder(EditedMediaItemSequence.Builder(item).build())
                 .apply { if (sourceIsHdr) setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL) }

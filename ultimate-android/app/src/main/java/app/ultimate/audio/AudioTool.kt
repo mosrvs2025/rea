@@ -32,9 +32,9 @@ class AudioTool(private val app: UltimateApp) : Tool {
 
     override val id = "audio"
     override val title = "Video to audio"
-    override val tagline = "Pull the sound out of any video as MP3, M4A or WAV"
+    override val tagline = "Video to MP3, plus audio cutting, converting, speed and joining"
     override val icon: ImageVector = Icons.Rounded.GraphicEq
-    override val acceptedMimePrefixes = listOf("video/")
+    override val acceptedMimePrefixes = listOf("video/", "audio/")
 
     override val headline: StateFlow<String> = store.entries.map { list ->
         if (list.isEmpty()) "MP3, M4A and WAV" else "${list.size} file${if (list.size == 1) "" else "s"} · ${formatDuration(list.sumOf { it.durationMs })} of audio"

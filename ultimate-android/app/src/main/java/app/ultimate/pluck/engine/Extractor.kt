@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import app.ultimate.core.JobLog
 import app.ultimate.core.formatBytes
 import app.ultimate.pluck.model.AppItem
+import app.ultimate.pluck.model.FileNames
 import app.ultimate.pluck.model.estimateCompact
 import java.io.File
 import java.io.IOException
@@ -42,14 +43,14 @@ data class ApkComposition(val storedBytes: Long, val compressedBytes: Long) {
  */
 class Extractor(private val context: Context) {
 
-    suspend fun extract(app: AppItem, compact: Boolean, log: JobLog, onProgress: (done: Long, total: Long) -> Unit): Extracted = withContext(Dispatchers.IO) {
+    suspend fun extract(app: AppItem, compact: Boolean, nameTemplate: String, log: JobLog, onProgress: (done: Long, total: Long) -> Unit): Extracted = withContext(Dispatchers.IO) {
         val bundle = app.isSplit
         val ext = when {
             bundle -> ".apks"
             compact -> ".zip"
             else -> ".apk"
         }
-        val name = fileName(app) + ext
+        val name = FileNames.render(nameTemplate, app) + ext
         log.detail("  source  ${app.apkPaths.size} file${if (app.apkPaths.size == 1) "" else "s"} · ${formatBytes(app.apkBytes)}")
         app.apkPaths.forEach { log.detail("          ${File(it).name.padEnd(28)} ${formatBytes(File(it).length())}") }
         log.detail("  mode    " + if (compact) "compact (deflate level 9)" else if (bundle) "bundle (stored)" else "copy as-is")
@@ -136,12 +137,6 @@ class Extractor(private val context: Context) {
 
     companion object {
         /** "Label_1.2.3": keeps readable characters, replaces anything a filesystem or share target could choke on. */
-        fun fileName(app: AppItem): String {
-            val raw = "${app.label}_${app.versionName}".trim()
-            val cleaned = raw.map { if (it.isLetterOrDigit() || it in "._-+()") it else '_' }.joinToString("").trim('_', '.')
-            return cleaned.ifBlank { app.packageName }.take(120)
-        }
-
         /** Reads only the zip directories, so it is fast enough to show estimates before extracting. */
         fun composition(paths: List<String>): ApkComposition {
             var stored = 0L

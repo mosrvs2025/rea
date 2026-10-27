@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.media.AudioFormat as PlatformAudioFormat
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
@@ -16,6 +17,7 @@ import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
 import app.ultimate.audio.model.PcmMixer
 import app.ultimate.audio.model.PeakTracker
+import app.ultimate.audio.model.Stretcher
 import app.ultimate.core.JobLog
 import app.ultimate.core.formatBytes
 import app.ultimate.core.formatDuration
@@ -45,26 +47,34 @@ data class Converted(
     val format: OutFormat,
 )
 
+/** One file to read audio from. */
+data class ConvertInput(val uri: Uri, val name: String, val source: AudioSource)
+
 /**
- * Turns the audio track of a video into MP3, WAV or an untouched M4A, saved to Music/Ultimate.
- * MP3 is encoded with a Java port of LAME; the video's audio is decoded with the phone's own decoders.
+ * Turns the audio of videos or audio files into MP3, M4A (AAC) or WAV, saved to Music/Ultimate. Several inputs can be joined into one
+ * file, and the speed can change without changing pitch. Every path decodes with the phone's own decoders into 16-bit PCM, then
+ * mixes, stretches and encodes; MP3 uses a Java port of LAME and AAC the phone's encoder. AAC sources are copied untouched when
+ * nothing about the sound changes.
  */
 class AudioConverter(private val context: Context) {
     private var log: JobLog = JobLog()
 
     suspend fun convert(
-        input: Uri,
-        inputName: String,
-        src: AudioSource,
+        inputs: List<ConvertInput>,
         settings: AudioSettings,
         log: JobLog,
         onProgress: (fraction: Float, peaks: List<Float>) -> Unit,
     ): Converted = withContext(Dispatchers.IO) {
+        require(inputs.isNotEmpty())
         this@AudioConverter.log = log
-        val format = AudioPlanner.effectiveFormat(src, settings)
+        // Trim points belong to one file; a join always uses whole files.
+        val s = (if (inputs.size == 1) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)).copy(join = inputs.size > 1)
+        val format = s.format
+        val copy = inputs.size == 1 && AudioPlanner.copies(inputs[0].source, s)
+        val base = if (inputs.size == 1) baseName(inputs[0].name) else baseName(AudioPlanner.joinedName(inputs[0].name, inputs.size))
         val resolver = context.contentResolver
         val values = ContentValues().apply {
-            put(MediaStore.Audio.Media.DISPLAY_NAME, baseName(inputName) + "." + format.ext)
+            put(MediaStore.Audio.Media.DISPLAY_NAME, "$base.${format.ext}")
             put(MediaStore.Audio.Media.MIME_TYPE, format.mime)
             put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/Ultimate")
             put(MediaStore.Audio.Media.IS_PENDING, 1)
@@ -72,25 +82,18 @@ class AudioConverter(private val context: Context) {
         val uri = resolver.insert(MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
             ?: throw IOException("Could not create the output file")
         try {
-            val kept = AudioPlanner.keptMs(src, settings)
-            if (kept <= 0) throw IOException("Nothing left after trimming")
-            val outChannels = AudioPlanner.outputChannels(src, settings)
+            val outMs = inputs.sumOf { AudioPlanner.outputMs(it.source, s) }
+            if (outMs <= 0) throw IOException("Nothing left after trimming")
             val pfd = resolver.openFileDescriptor(uri, "rw") ?: throw IOException("Could not open the output file")
-            val facts = pfd.use { fd ->
-                when (format) {
-                    OutFormat.Mp3 -> toMp3(input, src, settings, outChannels, fd, onProgress)
-                    OutFormat.Wav -> toWav(input, src, settings, outChannels, fd, onProgress)
-                    OutFormat.M4a -> copyAac(input, src, settings, fd, onProgress)
-                }
-            }
+            val facts = pfd.use { fd -> if (copy) copyAac(inputs[0].uri, inputs[0].source, s, fd, onProgress) else transcode(inputs, s, outMs, fd, onProgress) }
             values.clear()
             values.put(MediaStore.Audio.Media.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
             val bytes = size(uri)
-            log.detail("  wrote   ${formatBytes(bytes)} · ${if (kept > 0) bytes * 8 / kept else 0} kbps average · ${facts.sampleRate} Hz · ${if (facts.channels == 1) "mono" else "stereo"}")
+            log.detail("  wrote   ${formatBytes(bytes)} · ${bytes * 8 / outMs} kbps average · ${facts.sampleRate} Hz · ${if (facts.channels == 1) "mono" else "stereo"}")
             Converted(
-                uri, displayName(uri) ?: (baseName(inputName) + "." + format.ext), bytes, kept, facts.sampleRate, facts.channels,
-                if (kept > 0) (bytes * 8000 / kept).toInt() else 0, facts.peaks, format,
+                uri, displayName(uri) ?: "$base.${format.ext}", bytes, outMs, facts.sampleRate, facts.channels,
+                (bytes * 8000 / outMs).toInt(), facts.peaks, format,
             )
         } catch (e: Throwable) {
             // Includes cancellation: never leave a half-written file behind.
@@ -101,110 +104,224 @@ class AudioConverter(private val context: Context) {
 
     private data class Facts(val sampleRate: Int, val channels: Int, val peaks: List<Float>)
 
-    // ─────────────────────────────── MP3 ───────────────────────────────
+    // ─────────────────────────── decode → mix → stretch → encode ───────────────────────────
 
-    private suspend fun toMp3(
-        input: Uri, src: AudioSource, s: AudioSettings, outChannels: Int, fd: ParcelFileDescriptor,
+    private suspend fun transcode(
+        inputs: List<ConvertInput>, s: AudioSettings, outMs: Long, fd: ParcelFileDescriptor,
         onProgress: (Float, List<Float>) -> Unit,
     ): Facts {
-        val rate = AudioPlanner.mp3Rate(src.sampleRate)
-        var encoder: LameEncoder? = null
-        var mixer: PcmMixer? = null
-        var pending = ByteArray(0)
-        var pendingLen = 0
-        var mp3 = ByteArray(0)
-        var effectiveRate = rate
-        ParcelFileDescriptor.AutoCloseOutputStream(fd).use { out ->
-            fun flushChunk(final: Boolean) {
-                val enc = encoder ?: return
-                if (pendingLen > 0) {
-                    val n = enc.encodeBuffer(pending, 0, pendingLen, mp3)
-                    out.write(mp3, 0, n)
-                    pendingLen = 0
-                }
-                if (final) out.write(mp3, 0, enc.encodeFinish(mp3))
+        val first = inputs[0].source
+        val rate = if (s.format == OutFormat.Wav) first.sampleRate else AudioPlanner.encoderRate(first.sampleRate)
+        val channels = AudioPlanner.outputChannels(inputs.map { it.source }, s)
+        if (inputs.size > 1) log.detail("  join    ${inputs.size} files, in order, as one")
+        if (s.speed != 1f) log.detail("  speed   ${s.speed}× (pitch kept)")
+        val tracker = PeakTracker(totalFrames = outMs * rate / 1000)
+        val stretcher = if (s.speed != 1f) Stretcher(rate, channels, s.speed) else null
+        val sink: PcmSink = when (s.format) {
+            OutFormat.Mp3 -> Mp3Sink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels, s.kbps)
+            OutFormat.Wav -> WavSink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels)
+            OutFormat.M4a -> AacSink(fd, rate, channels, AudioPlanner.aacKbps(s.kbps))
+        }
+        log.detail("  encoder ${sink.describe()}")
+        try {
+            fun emit(samples: ShortArray, n: Int) {
+                if (n <= 0) return
+                tracker.add(samples, n, channels)
+                sink.write(samples, n)
             }
-            val tracker = decode(input, src, s, onProgress) { pcm, count, srcRate, srcChannels ->
-                if (encoder == null) {
-                    effectiveRate = AudioPlanner.mp3Rate(srcRate)
-                    val format = AudioFormat(effectiveRate.toFloat(), 16, outChannels, true, false)
-                    if (effectiveRate != srcRate) log.warn("  resample ${srcRate} Hz → $effectiveRate Hz (MP3 does not support $srcRate Hz)")
-                    if (srcChannels > outChannels) log.detail("  mix     $srcChannels → $outChannels channel${if (outChannels == 1) "" else "s"}")
-                    encoder = LameEncoder(
-                        format, s.kbps,
-                        if (outChannels == 1) LameEncoder.CHANNEL_MODE_MONO else LameEncoder.CHANNEL_MODE_AUTO,
-                        LameEncoder.QUALITY_MIDDLE, false,
-                    ).also {
-                        log.detail("  encoder LAME ${it.encoderVersion} · ${s.kbps} kbps CBR · ${if (outChannels == 1) "mono" else "joint stereo"} · $effectiveRate Hz")
-                        pending = ByteArray(it.getPCMBufferSize())
-                        mp3 = ByteArray(it.getMP3BufferSize())
+            inputs.forEachIndexed { i, input ->
+                if (inputs.size > 1) log.detail("  part ${i + 1}  ${input.name}")
+                var mixer: PcmMixer? = null
+                var mixedFrom = 0 to 0
+                decode(input.uri, input.source, s, { f -> onProgress((i + f) / inputs.size, tracker.snapshot()) }) { pcm, count, srcRate, srcChannels ->
+                    if (mixer == null || mixedFrom != (srcRate to srcChannels)) {
+                        if (srcRate != rate) log.detail("  resample $srcRate Hz → $rate Hz")
+                        mixer = PcmMixer(srcChannels, channels, srcRate, rate)
+                        mixedFrom = srcRate to srcChannels
                     }
-                    mixer = PcmMixer(srcChannels, outChannels, srcRate, effectiveRate)
-                }
-                val (samples, n) = mixer!!.process(pcm, count)
-                var i = 0
-                while (i < n) {
-                    if (pendingLen + 2 > pending.size) flushChunk(false)
-                    val room = (pending.size - pendingLen) / 2
-                    val take = min(room, n - i)
-                    for (k in 0 until take) {
-                        val v = samples[i + k].toInt()
-                        pending[pendingLen++] = v.toByte()
-                        pending[pendingLen++] = (v shr 8).toByte()
-                    }
-                    i += take
+                    val (mixed, n) = mixer!!.process(pcm, count)
+                    if (stretcher == null) emit(mixed, n) else { val (st, m) = stretcher.process(mixed, n); emit(st, m) }
                 }
             }
-            flushChunk(true)
-            encoder?.close()
-            return Facts(effectiveRate, outChannels, tracker.snapshot())
+            stretcher?.finish()?.let { (st, m) -> emit(st, m) }
+            sink.finish()
+        } finally {
+            sink.close()
+        }
+        onProgress(1f, tracker.snapshot())
+        return Facts(rate, channels, tracker.snapshot())
+    }
+
+    /** Where PCM goes to become a file. */
+    private interface PcmSink {
+        fun describe(): String
+        fun write(samples: ShortArray, count: Int)
+        fun finish()
+        /** Releases everything; safe after [finish] and after a failure. */
+        fun close()
+    }
+
+    private class Mp3Sink(private val out: OutputStream, rate: Int, channels: Int, private val kbps: Int) : PcmSink {
+        private val encoder = LameEncoder(
+            AudioFormat(rate.toFloat(), 16, channels, true, false), kbps,
+            if (channels == 1) LameEncoder.CHANNEL_MODE_MONO else LameEncoder.CHANNEL_MODE_AUTO, LameEncoder.QUALITY_MIDDLE, false,
+        )
+        private val mode = if (channels == 1) "mono" else "joint stereo"
+        private val rateHz = rate
+        private val pending = ByteArray(encoder.getPCMBufferSize())
+        private var pendingLen = 0
+        private val mp3 = ByteArray(encoder.getMP3BufferSize())
+
+        override fun describe() = "LAME ${encoder.encoderVersion} · $kbps kbps CBR · $mode · $rateHz Hz"
+
+        override fun write(samples: ShortArray, count: Int) {
+            var i = 0
+            while (i < count) {
+                if (pendingLen + 2 > pending.size) flush()
+                val take = min((pending.size - pendingLen) / 2, count - i)
+                for (k in 0 until take) {
+                    val v = samples[i + k].toInt()
+                    pending[pendingLen++] = v.toByte()
+                    pending[pendingLen++] = (v shr 8).toByte()
+                }
+                i += take
+            }
+        }
+
+        private fun flush() {
+            if (pendingLen > 0) out.write(mp3, 0, encoder.encodeBuffer(pending, 0, pendingLen, mp3))
+            pendingLen = 0
+        }
+
+        override fun finish() {
+            flush()
+            out.write(mp3, 0, encoder.encodeFinish(mp3))
+        }
+
+        override fun close() {
+            runCatching { encoder.close() }
+            runCatching { out.close() }
         }
     }
 
-    // ─────────────────────────────── WAV ───────────────────────────────
+    private class WavSink(private val out: ParcelFileDescriptor.AutoCloseOutputStream, private val rate: Int, private val channels: Int) : PcmSink {
+        private val bytes = ByteArray(64 * 1024)
+        private var dataBytes = 0L
 
-    private suspend fun toWav(
-        input: Uri, src: AudioSource, s: AudioSettings, outChannels: Int, fd: ParcelFileDescriptor,
-        onProgress: (Float, List<Float>) -> Unit,
-    ): Facts {
-        var rate = src.sampleRate
-        var dataBytes = 0L
-        var mixer: PcmMixer? = null
-        ParcelFileDescriptor.AutoCloseOutputStream(fd).use { out ->
+        init {
             out.write(ByteArray(44)) // header is filled in once the length is known
-            val bytes = ByteArray(64 * 1024)
-            val tracker = decode(input, src, s, onProgress) { pcm, count, srcRate, srcChannels ->
-                if (mixer == null) {
-                    rate = srcRate
-                    mixer = PcmMixer(srcChannels, outChannels, srcRate, srcRate)
+        }
+
+        override fun describe() = "WAV · 16-bit PCM · ${if (channels == 1) "mono" else "stereo"} · $rate Hz"
+
+        override fun write(samples: ShortArray, count: Int) {
+            var i = 0
+            while (i < count) {
+                val take = min(bytes.size / 2, count - i)
+                for (k in 0 until take) {
+                    val v = samples[i + k].toInt()
+                    bytes[2 * k] = v.toByte()
+                    bytes[2 * k + 1] = (v shr 8).toByte()
                 }
-                val (samples, n) = mixer!!.process(pcm, count)
-                var i = 0
-                while (i < n) {
-                    val take = min(bytes.size / 2, n - i)
-                    for (k in 0 until take) {
-                        val v = samples[i + k].toInt()
-                        bytes[2 * k] = v.toByte()
-                        bytes[2 * k + 1] = (v shr 8).toByte()
-                    }
-                    out.write(bytes, 0, take * 2)
-                    dataBytes += take * 2
-                    i += take
-                }
+                out.write(bytes, 0, take * 2)
+                dataBytes += take * 2
+                i += take
             }
+        }
+
+        override fun finish() {
             out.channel.position(0)
-            out.write(wavHeader(dataBytes, rate, outChannels))
-            return Facts(rate, outChannels, tracker.snapshot())
+            out.write(wavHeader(dataBytes, rate, channels))
+        }
+
+        override fun close() {
+            runCatching { out.close() }
         }
     }
 
-    private fun wavHeader(dataBytes: Long, rate: Int, channels: Int): ByteArray {
-        val b = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-        b.put("RIFF".toByteArray()).putInt((36 + dataBytes).toInt()).put("WAVE".toByteArray())
-        b.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(channels.toShort()).putInt(rate)
-            .putInt(rate * channels * 2).putShort((channels * 2).toShort()).putShort(16)
-        b.put("data".toByteArray()).putInt(dataBytes.toInt())
-        return b.array()
+    /** AAC-LC in an MP4 (.m4a) container, encoded by the phone. */
+    private class AacSink(fd: ParcelFileDescriptor, private val rate: Int, private val channels: Int, private val kbps: Int) : PcmSink {
+        private val codec = MediaCodec.createEncoderByType(AudioSource.AAC)
+        private val muxer = MediaMuxer(fd.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        private val info = MediaCodec.BufferInfo()
+        private var track = -1
+        private var muxing = false
+        private var frames = 0L
+
+        init {
+            val format = MediaFormat.createAudioFormat(AudioSource.AAC, rate, channels).apply {
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_BIT_RATE, kbps * 1000)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16 * 1024)
+            }
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+        }
+
+        override fun describe() = "${codec.name} · AAC-LC $kbps kbps · ${if (channels == 1) "mono" else "stereo"} · $rate Hz"
+
+        override fun write(samples: ShortArray, count: Int) {
+            var i = 0
+            while (i < count) {
+                val index = codec.dequeueInputBuffer(10_000)
+                if (index < 0) { drain(false); continue }
+                val buf = codec.getInputBuffer(index)!!.order(ByteOrder.LITTLE_ENDIAN)
+                buf.clear()
+                val take = min(buf.remaining() / 2 / channels * channels, count - i)
+                buf.asShortBuffer().put(samples, i, take)
+                codec.queueInputBuffer(index, 0, take * 2, frames * 1_000_000 / rate, 0)
+                frames += take / channels
+                i += take
+                drain(false)
+            }
+        }
+
+        override fun finish() {
+            var queued = false
+            var tries = 0
+            while (!queued && tries++ < 500) {
+                val index = codec.dequeueInputBuffer(10_000)
+                if (index >= 0) {
+                    codec.queueInputBuffer(index, 0, 0, frames * 1_000_000 / rate, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    queued = true
+                } else drain(false)
+            }
+            drain(true)
+            if (muxing) muxer.stop()
+            muxing = false
+        }
+
+        private fun drain(untilEnd: Boolean) {
+            var idle = 0
+            while (true) {
+                val o = codec.dequeueOutputBuffer(info, if (untilEnd) 10_000 else 0)
+                when {
+                    o == MediaCodec.INFO_TRY_AGAIN_LATER -> if (!untilEnd || ++idle > 500) return
+                    o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        track = muxer.addTrack(codec.outputFormat)
+                        muxer.start()
+                        muxing = true
+                    }
+                    o >= 0 -> {
+                        val buf = codec.getOutputBuffer(o)!!
+                        if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
+                        if (info.size > 0 && muxing) {
+                            buf.position(info.offset).limit(info.offset + info.size)
+                            muxer.writeSampleData(track, buf, info)
+                        }
+                        codec.releaseOutputBuffer(o, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+                    }
+                }
+            }
+        }
+
+        override fun close() {
+            runCatching { if (muxing) muxer.stop() }
+            runCatching { muxer.release() }
+            runCatching { codec.stop() }
+            runCatching { codec.release() }
+        }
     }
 
     // ─────────────────────────── M4A (copy) ────────────────────────────
@@ -215,7 +332,8 @@ class AudioConverter(private val context: Context) {
         onProgress: (Float, List<Float>) -> Unit,
     ): Facts {
         log.detail("  mode    copying AAC frames untouched (no re-encode)")
-        val tracker = decode(input, src, s, { f, p -> onProgress(f * 0.9f, p) }) { _, _, _, _ -> }
+        val tracker = PeakTracker(totalFrames = AudioPlanner.keptMs(src, s) * src.sampleRate / 1000)
+        decode(input, src, s, { f -> onProgress(f * 0.9f, tracker.snapshot()) }) { pcm, n, _, ch -> tracker.add(pcm, n, ch) }
         val peaks = tracker.snapshot()
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -259,15 +377,14 @@ class AudioConverter(private val context: Context) {
 
     /**
      * Decodes the audio track between the trim points and hands interleaved 16-bit PCM to [sink].
-     * Returns the waveform of everything that was decoded.
      */
     private suspend fun decode(
         input: Uri,
         src: AudioSource,
         s: AudioSettings,
-        onProgress: (Float, List<Float>) -> Unit,
+        onProgress: (Float) -> Unit,
         sink: (pcm: ShortArray, count: Int, sampleRate: Int, channels: Int) -> Unit,
-    ): PeakTracker {
+    ) {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         try {
@@ -282,7 +399,6 @@ class AudioConverter(private val context: Context) {
             var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var floatPcm = false
-            val tracker = PeakTracker(totalFrames = (endUs - startUs) * rate / 1_000_000)
             val dec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!).also { codec = it }
             dec.configure(format, null, null, 0)
             dec.start()
@@ -336,13 +452,12 @@ class AudioConverter(private val context: Context) {
                                     sb.position(skip * channels)
                                     sb.get(scratch, 0, shorts)
                                 }
-                                tracker.add(scratch, shorts, channels)
                                 sink(scratch, shorts, rate, channels)
                             }
                             val now = System.nanoTime()
                             if (now - lastReport > 120_000_000L) {
                                 lastReport = now
-                                onProgress(((info.presentationTimeUs - startUs).toFloat() / span).coerceIn(0f, 1f), tracker.snapshot())
+                                onProgress(((info.presentationTimeUs - startUs).toFloat() / span).coerceIn(0f, 1f))
                             }
                         }
                         dec.releaseOutputBuffer(o, false)
@@ -357,8 +472,7 @@ class AudioConverter(private val context: Context) {
                     }
                 }
             }
-            onProgress(1f, tracker.snapshot())
-            return tracker
+            onProgress(1f)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -376,4 +490,13 @@ class AudioConverter(private val context: Context) {
         fun baseName(original: String): String =
             original.substringBeforeLast('.', original).map { if (it.isLetterOrDigit() || it in " ._-+()") it else '_' }.joinToString("").trim().ifBlank { "audio" }.take(120)
     }
+}
+
+private fun wavHeader(dataBytes: Long, rate: Int, channels: Int): ByteArray {
+    val b = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+    b.put("RIFF".toByteArray()).putInt((36 + dataBytes).toInt()).put("WAVE".toByteArray())
+    b.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(channels.toShort()).putInt(rate)
+        .putInt(rate * channels * 2).putShort((channels * 2).toShort()).putShort(16)
+    b.put("data".toByteArray()).putInt(dataBytes.toInt())
+    return b.array()
 }

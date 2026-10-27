@@ -98,8 +98,9 @@ class ReplacementsTest {
     private val unrelated = app("com.example.other")
 
     @Test fun toolBuiltIntoThisAppIsAvailable() {
-        val av = app.ultimate.pluck.model.Replacements.availability(setOf("squeeze", "audio", "pluck"), setOf("app.ultimate"))
-        assertEquals(setOf("squeeze", "audio", "pluck"), av.keys)
+        val av = app.ultimate.pluck.model.Replacements.availability(setOf("squeeze", "audio", "pluck", "studio"), setOf("app.ultimate"))
+        assertEquals(setOf("squeeze", "audio", "pluck", "studio"), av.keys)
+        assertTrue(av.values.all { it.endsWith("in this app") })
         assertTrue(av.getValue("squeeze").endsWith("in this app"))
     }
 
@@ -109,7 +110,7 @@ class ReplacementsTest {
         val withSqueeze = app.ultimate.pluck.model.Replacements.availability(setOf("pluck"), setOf("app.pluck", "app.squeeze"))
         assertEquals(setOf("pluck", "squeeze"), withSqueeze.keys)
         val viaSuite = app.ultimate.pluck.model.Replacements.availability(setOf("pluck"), setOf("app.pluck", "app.ultimate"))
-        assertEquals(setOf("pluck", "squeeze", "audio"), viaSuite.keys)
+        assertEquals(setOf("pluck", "squeeze", "audio", "studio"), viaSuite.keys)
     }
 
     @Test fun findsKnownAppsOnlyWhenTheirReplacementIsUsable() {
@@ -120,12 +121,36 @@ class ReplacementsTest {
     }
 
     @Test fun partialReplacementsAreOnlySafeOnceAccepted() {
-        val av = mapOf("pluck" to "Pluck in this app")
-        val before = app.ultimate.pluck.model.Replacements.find(listOf(original), av, emptyMap(), emptySet()).single()
+        val compressor = app("com.compress.video.compressor.size.reducer", "Compress Video Size")
+        val av = mapOf("squeeze" to "Squeeze in this app", "studio" to "Studio in this app")
+        val before = app.ultimate.pluck.model.Replacements.find(listOf(compressor), av, emptyMap(), emptySet()).single()
         assertTrue(!before.safe)
         assertTrue(before.replacement.missing.isNotEmpty())
-        val after = app.ultimate.pluck.model.Replacements.find(listOf(original), av, emptyMap(), setOf(original.packageName)).single()
+        val after = app.ultimate.pluck.model.Replacements.find(listOf(compressor), av, emptyMap(), setOf(compressor.packageName)).single()
         assertTrue(after.safe)
+    }
+
+    @Test fun helperToolsCountOnlyWhereTheyAreInstalled() {
+        val mp3 = app("mp3videoconverter.videotomp3.videotomp3converter", "Video to MP3 Converter")
+        val r = app.ultimate.pluck.model.Replacements
+        val suite = r.find(listOf(mp3), mapOf("audio" to "Video to audio in this app", "studio" to "Studio in this app"), emptyMap(), emptySet()).single()
+        assertTrue(suite.safe)
+        assertEquals("Video to audio + Studio in this app", suite.via)
+        // The audio-only edition has no Studio: joining videos is then genuinely missing.
+        val alone = r.find(listOf(mp3), mapOf("audio" to "Video to audio in this app"), emptyMap(), emptySet()).single()
+        assertTrue(!alone.safe)
+        assertEquals(listOf("Video merger"), alone.replacement.missing)
+        assertEquals("Video to audio in this app", alone.via)
+    }
+
+    @Test fun fileNamePatternsFillInAndStaySafe() {
+        val a = app("com.example.app", "My App: Pro").copy(versionName = "2.1/beta", versionCode = 42)
+        val f = app.ultimate.pluck.model.FileNames
+        assertEquals("My App_ Pro_2.1_beta", f.render(f.DEFAULT, a))
+        assertEquals("com.example.app_42", f.render("{package}_{code}", a))
+        assertEquals("com.example.app", f.render("///", a))
+        assertEquals("v2", f.render("v2", a))
+        assertTrue(f.render("{name}-{date}", a, java.util.Date(0)).endsWith("-1970-01-01"))
     }
 
     @Test fun handMarkedAppsCountAsSafeAndOurOwnAppsAreNeverOffered() {
