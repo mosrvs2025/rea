@@ -1,0 +1,12 @@
+{
+  "package": "app.orbit.gamehub",
+  "version": "0.1.0",
+  "min_sdk": "26",
+  "target_sdk": "35",
+  "permissions": [],
+  "activities": [
+    "app.orbit.gamehub.MainActivity"
+  ],
+  "class_count": 13,
+  "device_tested": false
+}

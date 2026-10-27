@@ -1,0 +1,273 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:sharedUserId="com.epicgames.portal.SUID" android:versionCode="50066" android:versionName="1.0.6" android:compileSdkVersion="35" android:compileSdkVersionCodename="15" android:sharedUserMaxSdkVersion="32" package="com.epicgames.portal" platformBuildVersionCode="35" platformBuildVersionName="15">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <queries>
+    <intent>
+      <action android:name="android.support.customtabs.action.CustomTabsService"/>
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW"/>
+      <category android:name="android.intent.category.BROWSABLE"/>
+      <data android:scheme="https"/>
+    </intent>
+    <intent>
+      <action android:name="com.digitalturbine.ignite.cl.IgniteRemoteService"/>
+    </intent>
+    <intent>
+      <action android:name="com.digitalturbine.ignite.service.action.CLIENT_DATA"/>
+    </intent>
+  </queries>
+  <uses-permission android:name="android.permission.VIBRATE"/>
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <uses-permission android:name="android.permission.INSTALL_PACKAGES"/>
+  <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES"/>
+  <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+  <uses-permission android:name="android.permission.WAKE_LOCK"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE"/>
+  <permission android:name="com.epicgames.portal.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" android:protectionLevel="0x00000002"/>
+  <uses-permission android:name="com.epicgames.portal.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>
+  <application android:theme="@7F100116" android:label="@7F0F001F" android:icon="@7F0D0000" android:name="com.epicgames.portal.EGApplication" android:allowBackup="false" android:supportsRtl="true" android:extractNativeLibs="false" android:networkSecurityConfig="@7F120003" android:roundIcon="@7F0D0001" android:appComponentFactory="androidx.core.app.CoreComponentFactory">
+    <activity android:theme="@7F100116" android:name="com.epicgames.portal.ui.MainActivity" android:exported="true" android:launchMode="2" android:screenOrientation="1" android:windowSoftInputMode="0x00000010">
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="egs" android:host="epic" android:pathPrefix="/p/"/>
+      </intent-filter>
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="egs" android:host="epic" android:path="/auth"/>
+      </intent-filter>
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="store.epicgames.com" android:pathPrefix="/authorize"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="com.epicgames.portal.intent.action.UPDATE_PACKAGE"/>
+        <action android:name="com.epicgames.portal.intent.action.VIEW_PACKAGE"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+      </intent-filter>
+      <intent-filter android:label="@7F0F00AF" android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="www.epicgames.com" android:pathPattern="/.*/.*/mobile/android/get-started"/>
+      </intent-filter>
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="store.epicgames.com" android:pathPrefix="/external-payment-complete"/>
+      </intent-filter>
+      <intent-filter android:label="@7F0F00AF" android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https"/>
+        <data android:host="store.epicgames.com"/>
+        <data android:pathPattern="/p/fortnite"/>
+        <data android:pathPattern="/.*/p/fortnite"/>
+        <data android:pathPattern="/p/fortnite--festival"/>
+        <data android:pathPattern="/.*/p/fortnite--festival"/>
+        <data android:pathPattern="/p/fortnite--rocket-racing"/>
+        <data android:pathPattern="/.*/p/fortnite--rocket-racing"/>
+        <data android:pathPattern="/p/fortnite--lego"/>
+        <data android:pathPattern="/.*/p/fortnite--lego"/>
+        <data android:pathPattern="/p/fortnite--lego-brick-life"/>
+        <data android:pathPattern="/.*/p/fortnite--lego-brick-life"/>
+        <data android:pathPattern="/p/fortnite--reload"/>
+        <data android:pathPattern="/.*/p/fortnite--reload"/>
+        <data android:pathPattern="/p/fortnite--og"/>
+        <data android:pathPattern="/.*/p/fortnite--og"/>
+        <data android:pathPattern="/p/fortnite--ballistic"/>
+        <data android:pathPattern="/.*/p/fortnite--ballistic"/>
+        <data android:pathPattern="/download/fortnite"/>
+        <data android:pathPattern="/.*/download/fortnite"/>
+        <data android:pathPattern="/p/rocket-league"/>
+        <data android:pathPattern="/.*/p/rocket-league"/>
+        <data android:pathPattern="/download/rocket-league-sideswipe"/>
+        <data android:pathPattern="/.*/download/rocket-league-sideswipe"/>
+        <data android:pathPattern="/p/fall-guys"/>
+        <data android:pathPattern="/.*/p/fall-guys"/>
+        <data android:pathPattern="/download/fall-guys"/>
+        <data android:pathPattern="/.*/download/fall-guys"/>
+        <data android:pathPattern="/download/android"/>
+        <data android:pathPattern="/.*/download/android"/>
+      </intent-filter>
+      <intent-filter android:label="@7F0F00AF" android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https"/>
+        <data android:host="www.fortnite.com"/>
+        <data android:pathPattern="/.*/android"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+      <intent-filter android:label="@7F0F00AF" android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https"/>
+        <data android:host="store.epicgames.com"/>
+        <data android:pathPattern="/authenticator"/>
+      </intent-filter>
+    </activity>
+    <meta-data android:name="com.epicgames.portal.epicBuildVersion" android:value="1.0.6-eed3740b8.b36+1+release_store_android_1.0.6-StandardInstallRelease-Android"/>
+    <meta-data android:name="com.epicgames.portal.preInstall" android:value="StandardInstall"/>
+    <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false"/>
+    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="announcements_and_promotions_channel_id"/>
+    <activity android:theme="@7F100115" android:label="DebugActivity" android:name="com.epicgames.portal.ui.DebugSettingsActivity" android:exported="false"/>
+    <provider android:name="androidx.startup.InitializationProvider" android:exported="false" android:authorities="com.epicgames.portal.startup">
+      <meta-data android:name="com.epicgames.portal.startup.StartupInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="androidx.work.WorkManagerInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="androidx.emoji2.text.EmojiCompatInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="androidx.lifecycle.ProcessLifecycleInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="androidx.profileinstaller.ProfileInstallerInitializer" android:value="androidx.startup"/>
+      <meta-data android:name="okhttp3.internal.platform.PlatformInitializer" android:value="androidx.startup"/>
+    </provider>
+    <service android:name="com.epicgames.portal.notification.fcm.FcmMessagingService" android:exported="false">
+      <intent-filter>
+        <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+      </intent-filter>
+    </service>
+    <receiver android:name="com.epicgames.portal.notification.NotificationDeclineReceiver" android:exported="false"/>
+    <meta-data android:name="com.digitalturbine.ignite.aidl.CLIENT_ID" android:value="e2cb6577-1197-4d92-91b7-43a34ca305d9"/>
+    <provider android:name="com.epicgames.portal.store.common.EpicGamesFileProvider" android:exported="false" android:authorities="com.epicgames.portal.fileProvider" android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@7F120001"/>
+    </provider>
+    <provider android:name="com.epicgames.portal.store.service.provider.LauncherInfoProvider" android:exported="true" android:authorities="com.epicgames.portal.LauncherInfoProvider"/>
+    <service android:name="com.epicgames.portal.store.service.library.LibraryService" android:exported="false" android:foregroundServiceType="0x40000000"/>
+    <receiver android:name="com.epicgames.portal.store.common.broadcast.SelfUpdateBroadcastReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="com.epicgames.portal.store.tasks.install.installer.android.Android12SilentInstallReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="com.epicgames.portal.SILENT_INSTALL_COMPLETE"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="com.epicgames.portal.store.tasks.install.installer.android.Android12ManualInstallReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="com.epicgames.portal.MANUAL_INSTALL_COMPLETE"/>
+      </intent-filter>
+    </receiver>
+    <service android:name="androidx.work.impl.background.systemalarm.SystemAlarmService" android:enabled="@7F040003" android:exported="false" android:directBootAware="false"/>
+    <service android:name="androidx.work.impl.background.systemjob.SystemJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:enabled="@7F040005" android:exported="true" android:directBootAware="false"/>
+    <service android:name="androidx.work.impl.foreground.SystemForegroundService" android:enabled="@7F040004" android:exported="false" android:directBootAware="false"/>
+    <receiver android:name="androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver" android:enabled="true" android:exported="false" android:directBootAware="false"/>
+    <receiver android:name="androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryChargingProxy" android:enabled="false" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="android.intent.action.ACTION_POWER_CONNECTED"/>
+        <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.background.systemalarm.ConstraintProxy$BatteryNotLowProxy" android:enabled="false" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BATTERY_OKAY"/>
+        <action android:name="android.intent.action.BATTERY_LOW"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.background.systemalarm.ConstraintProxy$StorageNotLowProxy" android:enabled="false" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="android.intent.action.DEVICE_STORAGE_LOW"/>
+        <action android:name="android.intent.action.DEVICE_STORAGE_OK"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.background.systemalarm.ConstraintProxy$NetworkStateProxy" android:enabled="false" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="android.net.conn.CONNECTIVITY_CHANGE"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.background.systemalarm.RescheduleReceiver" android:enabled="false" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+        <action android:name="android.intent.action.TIME_SET"/>
+        <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.background.systemalarm.ConstraintProxyUpdateReceiver" android:enabled="@7F040003" android:exported="false" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="androidx.work.impl.background.systemalarm.UpdateProxies"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver" android:permission="android.permission.DUMP" android:enabled="true" android:exported="true" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="androidx.work.diagnostics.REQUEST_DIAGNOSTICS"/>
+      </intent-filter>
+    </receiver>
+    <receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver" android:permission="com.google.android.c2dm.permission.SEND" android:exported="true">
+      <intent-filter>
+        <action android:name="com.google.android.c2dm.intent.RECEIVE"/>
+      </intent-filter>
+      <meta-data android:name="com.google.android.gms.cloudmessaging.FINISHED_AFTER_HANDLED" android:value="true"/>
+    </receiver>
+    <service android:name="com.google.firebase.messaging.FirebaseMessagingService" android:exported="false" android:directBootAware="true">
+      <intent-filter android:priority="-500">
+        <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+      </intent-filter>
+    </service>
+    <service android:name="com.google.firebase.components.ComponentDiscoveryService" android:exported="false" android:directBootAware="true">
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.messaging.FirebaseMessagingKtxRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.messaging.FirebaseMessagingRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.installations.FirebaseInstallationsKtxRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.installations.FirebaseInstallationsRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.ktx.FirebaseCommonLegacyRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.FirebaseCommonKtxRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+      <meta-data android:name="com.google.firebase.components:com.google.firebase.datatransport.TransportRegistrar" android:value="com.google.firebase.components.ComponentRegistrar"/>
+    </service>
+    <activity android:theme="@android:01030010" android:name="com.google.android.gms.common.api.GoogleApiActivity" android:exported="false"/>
+    <provider android:name="com.google.firebase.provider.FirebaseInitProvider" android:exported="false" android:authorities="com.epicgames.portal.firebaseinitprovider" android:initOrder="100" android:directBootAware="true"/>
+    <meta-data android:name="com.google.android.gms.version" android:value="@7F0A0006"/>
+    <uses-library android:name="androidx.window.extensions" android:required="false"/>
+    <uses-library android:name="androidx.window.sidecar" android:required="false"/>
+    <activity android:name="androidx.compose.ui.tooling.PreviewActivity" android:exported="true"/>
+    <service android:name="androidx.room.MultiInstanceInvalidationService" android:exported="false" android:directBootAware="true"/>
+    <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" android:permission="android.permission.DUMP" android:enabled="true" android:exported="true" android:directBootAware="false">
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.SKIP_FILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.SAVE_PROFILE"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION"/>
+      </intent-filter>
+    </receiver>
+    <service android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery" android:exported="false">
+      <meta-data android:name="backend:com.google.android.datatransport.cct.CctBackendFactory" android:value="cct"/>
+    </service>
+    <service android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false"/>
+    <receiver android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.AlarmManagerSchedulerBroadcastReceiver" android:exported="false"/>
+    <service android:name="com.digitalturbine.ignite.cl.aidl.jobs.AppUpdaterJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:enabled="true" android:exported="true"/>
+    <receiver android:name="com.digitalturbine.ignite.cl.aidl.jobs.AppUpdaterJobReceiver" android:enabled="true" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+      </intent-filter>
+    </receiver>
+    <provider android:name="androidx.core.content.FileProvider" android:exported="false" android:authorities="com.epicgames.portal.digitalturbine.fileprovider" android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@7F120000"/>
+    </provider>
+    <receiver android:name="com.digitalturbine.ignite.cl.aidl.utility.PropertyChangedBroadcastReceiver" android:enabled="true" android:exported="true">
+      <intent-filter>
+        <action android:name="com.dt.ignite.service.action.PROPERTY_CHANGED"/>
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>
