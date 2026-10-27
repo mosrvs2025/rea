@@ -100,6 +100,7 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
         val list = p.clips.toMutableList(); val from = list.indexOfFirst { it.id == id }; val to = from + delta
         if (from >= 0 && to in list.indices) { val c = list.removeAt(from); list.add(to, c) }; p.copy(clips = list)
     }
+    fun moveTo(id: String, index: Int) = edit { p -> p.copy(clips = Timeline.reorder(p.clips, p.clips.indexOfFirst { it.id == id }, index)) }
     fun split(id: String, atMs: Long) = edit { p -> p.copy(clips = p.clips.flatMap { if (it.id == id) Timeline.split(it, atMs) else listOf(it) }) }
     fun export() {
         if (work.value.active || loading.value) return

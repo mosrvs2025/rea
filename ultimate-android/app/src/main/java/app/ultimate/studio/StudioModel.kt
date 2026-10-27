@@ -53,6 +53,17 @@ object Timeline {
         return null
     }
 
+    /** Moves the clip at [from] to [to], shifting the others. */
+    fun <T> reorder(list: List<T>, from: Int, to: Int): List<T> {
+        if (from !in list.indices) return list
+        val target = to.coerceIn(0, list.lastIndex)
+        return list.toMutableList().apply { add(target, removeAt(from)) }
+    }
+
+    /** Where a lifted clip would land after moving [offsetPx] from slot [start], with slots [slotPx] wide. */
+    fun reorderSlot(start: Int, offsetPx: Float, slotPx: Float, count: Int): Int =
+        (start + kotlin.math.round(offsetPx / slotPx).toInt()).coerceIn(0, (count - 1).coerceAtLeast(0))
+
     /** Clip edges on the output clock, for snapping the playhead. */
     fun boundaries(project: StudioProject): List<Long> = project.clips.runningFold(0L) { at, c -> at + c.durationMs }
 

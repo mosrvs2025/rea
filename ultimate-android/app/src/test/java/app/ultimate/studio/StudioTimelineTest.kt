@@ -41,6 +41,23 @@ class StudioTimelineTest {
         Timeline.validate(StudioProject(clips = listOf(Timeline.trimStart(c, 9500), Timeline.trimEnd(c, 0))))
     }
 
+    @Test fun reorderMovesOneItemAndShiftsTheRest() {
+        val l = listOf("a", "b", "c", "d")
+        assertEquals(listOf("b", "c", "a", "d"), Timeline.reorder(l, 0, 2))
+        assertEquals(listOf("d", "a", "b", "c"), Timeline.reorder(l, 3, 0))
+        assertEquals(listOf("a", "b", "c", "d"), Timeline.reorder(l, 1, 1))
+        assertEquals("out-of-range targets clamp", listOf("b", "c", "d", "a"), Timeline.reorder(l, 0, 99))
+        assertEquals("unknown source is a no-op", l, Timeline.reorder(l, -1, 2))
+    }
+
+    @Test fun reorderSlotFollowsTheFingerByWholeTilesAndStaysInRange() {
+        assertEquals(2, Timeline.reorderSlot(2, 20f, 60f, 5))
+        assertEquals(3, Timeline.reorderSlot(2, 31f, 60f, 5))
+        assertEquals(0, Timeline.reorderSlot(2, -170f, 60f, 5))
+        assertEquals(4, Timeline.reorderSlot(2, 999f, 60f, 5))
+        assertEquals(0, Timeline.reorderSlot(0, 50f, 60f, 1))
+    }
+
     @Test fun undoRedoPreserveEveryEditAndNewEditsInvalidateRedo() {
         val h = StudioHistory(); val a = StudioProject(name = "A"); val b = a.copy(name = "B")
         h.record(a); assertEquals(a, h.undo(b)); assertEquals(b, h.redo(a))

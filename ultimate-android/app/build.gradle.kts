@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.8.0"
+        versionCode = 5
+        versionName = "1.9.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -31,6 +31,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "true")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
             buildConfigField("boolean", "HAS_STUDIO", "true")
+            buildConfigField("boolean", "HAS_CHECKUP", "true")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -43,6 +45,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "true")
             buildConfigField("boolean", "HAS_TRAFFIC", "true")
             buildConfigField("boolean", "HAS_STUDIO", "true")
+            buildConfigField("boolean", "HAS_CHECKUP", "true")
+            buildConfigField("boolean", "HAS_AI", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -54,6 +58,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
             buildConfigField("boolean", "HAS_STUDIO", "true")
+            buildConfigField("boolean", "HAS_CHECKUP", "false")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -65,6 +71,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "true")
             buildConfigField("boolean", "HAS_STUDIO", "false")
+            buildConfigField("boolean", "HAS_CHECKUP", "false")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -76,6 +84,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
             buildConfigField("boolean", "HAS_STUDIO", "false")
+            buildConfigField("boolean", "HAS_CHECKUP", "false")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -87,6 +97,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
             buildConfigField("boolean", "HAS_STUDIO", "false")
+            buildConfigField("boolean", "HAS_CHECKUP", "false")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -98,6 +110,8 @@ android {
             buildConfigField("boolean", "HAS_SOUND", "false")
             buildConfigField("boolean", "HAS_TRAFFIC", "false")
             buildConfigField("boolean", "HAS_STUDIO", "false")
+            buildConfigField("boolean", "HAS_CHECKUP", "false")
+            buildConfigField("boolean", "HAS_AI", "false")
         }
     }
 
@@ -121,6 +135,11 @@ android {
         buildConfig = true
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+}
+
+// Editions without the AI assistant get a stub, so the code that calls Anthropic exists only in Ultimate+.
+android.sourceSets {
+    listOf("ultimate", "studio", "traffic", "squeeze", "audio", "pluck").forEach { getByName(it).java.srcDir("src/noai/java") }
 }
 
 dependencies {

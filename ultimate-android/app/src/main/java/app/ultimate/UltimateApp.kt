@@ -40,6 +40,7 @@ class UltimateApp : Application() {
     val pluckRepository: AppRepository by lazy { AppRepository(this) }
     val pluckHistory: HistoryStore by lazy { HistoryStore(this) }
     val pluckScans: ScanStore by lazy { ScanStore(this) }
+    val checkupManager by lazy { app.ultimate.checkup.engine.CheckupManager(this) }
     val pluckReplacements: ReplacementStore by lazy { ReplacementStore(this) }
     val pluckManager: ExtractManager by lazy { ExtractManager(this, pluckHistory, work) }
 
@@ -55,6 +56,7 @@ class UltimateApp : Application() {
 
     val tools: List<Tool> by lazy {
         buildList {
+            if (BuildConfig.HAS_CHECKUP) add(app.ultimate.checkup.CheckupTool(checkupManager))
             if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
             if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))

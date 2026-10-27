@@ -107,6 +107,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -257,6 +261,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
                         if (panel != null && selection == null) panel = null
                     },
                     onTrim = { updated -> stop(); change(updated.id) { updated } },
+                    onReorder = { id, index -> stop(); manager.moveTo(id, index); haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                     onZoom = { z -> dpPerSecond = (dpPerSecond * z).coerceIn(MIN_DP_PER_SECOND, MAX_DP_PER_SECOND) },
                     onAddVideos = addVideos,
                     onMusic = { panel = Panel.Audio },
@@ -423,6 +428,7 @@ private fun TimelineView(
     onScrub: (Long) -> Unit,
     onSelect: (String) -> Unit,
     onTrim: (StudioClip) -> Unit,
+    onReorder: (String, Int) -> Unit,
     onZoom: (Float) -> Unit,
     onAddVideos: () -> Unit,
     onMusic: () -> Unit,
@@ -434,6 +440,9 @@ private fun TimelineView(
     // A trim in progress, shown live and committed (as one undo step) when the finger lifts.
     var draft by remember { mutableStateOf<StudioClip?>(null) }
     val clips = project.clips.map { c -> if (draft?.id == c.id) draft!! else c }
+    // A clip lifted by a long press, being dragged to a new place.
+    var lifted by remember { mutableStateOf<Lift?>(null) }
+    var boxX by remember { mutableFloatStateOf(0f) }
     val total = clips.sumOf { it.durationMs }
 
     LaunchedEffect(playheadMs, pxPerMs, total) {
@@ -458,6 +467,7 @@ private fun TimelineView(
 
     BoxWithConstraints(
         Modifier.fillMaxWidth().height(176.dp).background(MaterialTheme.colorScheme.background)
+            .onGloballyPositioned { boxX = it.positionInRoot().x }
             .pointerInput(Unit) {
                 // Two fingers zoom; one finger is left to the scroll and the trim handles.
                 awaitEachGesture {
@@ -482,7 +492,7 @@ private fun TimelineView(
             }
             return@BoxWithConstraints
         }
-        Row(Modifier.fillMaxSize().horizontalScroll(scroll, enabled = enabled && draft == null)) {
+        Row(Modifier.fillMaxSize().horizontalScroll(scroll, enabled = enabled && draft == null && lifted == null)) {
             Spacer(Modifier.width(half))
             Column {
                 Ruler(total, pxPerMs)
@@ -494,6 +504,16 @@ private fun TimelineView(
                             onTap = { onSelect(c.id) },
                             onDrag = { draft = it },
                             onDragEnd = { draft?.let(onTrim); draft = null },
+                            onLift = { rootX -> lifted = Lift(c.id, clips.indexOfFirst { it.id == c.id }, rootX - boxX) },
+                            onLiftMove = { dx -> lifted = lifted?.let { it.copy(dx = it.dx + dx) } },
+                            onLiftEnd = { drop ->
+                                val l = lifted
+                                lifted = null
+                                if (drop && l != null) {
+                                    val to = Timeline.reorderSlot(l.start, l.dx + l.shift, with(density) { REORDER_TILE.toPx() }, clips.size)
+                                    if (to != l.start) onReorder(l.id, to)
+                                }
+                            },
                         )
                     } }
                     Spacer(Modifier.width(10.dp))
@@ -524,6 +544,65 @@ private fun TimelineView(
         // The playhead never moves; the film moves under it.
         Box(Modifier.align(Alignment.TopCenter).offset(y = 18.dp).width(2.dp).fillMaxHeight().background(Color.White))
         Box(Modifier.align(Alignment.TopCenter).offset(y = 12.dp).size(10.dp).clip(CircleShape).background(Color.White))
+        lifted?.let { l -> ReorderOverlay(clips, l, constraints.maxWidth.toFloat()) { lifted = it } }
+    }
+}
+
+private val REORDER_TILE = 60.dp
+
+/** A clip being moved: where it started, where the finger went down (in timeline pixels), how far it has moved, and any auto-scroll. */
+private data class Lift(val id: String, val start: Int, val anchorX: Float, val dx: Float = 0f, val shift: Float = 0f)
+
+/**
+ * While reordering, every clip becomes an equal square so long and short clips are equally easy to move. The lifted clip follows the
+ * finger; the others slide apart to show where it will land; holding near an edge scrolls the row.
+ */
+@Composable
+private fun ReorderOverlay(clips: List<StudioClip>, lift: Lift, widthPx: Float, update: (Lift) -> Unit) {
+    val density = LocalDensity.current
+    val haptics = LocalHapticFeedback.current
+    val tile = with(density) { REORDER_TILE.toPx() }
+    val edge = with(density) { 56.dp.toPx() }
+    val current by androidx.compose.runtime.rememberUpdatedState(lift)
+    val target = Timeline.reorderSlot(lift.start, lift.dx + lift.shift, tile, clips.size)
+    LaunchedEffect(target) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(220)
+            val l = current
+            val finger = l.anchorX + l.dx
+            val slot = Timeline.reorderSlot(l.start, l.dx + l.shift, tile, clips.size)
+            when {
+                finger < edge && slot > 0 -> update(l.copy(shift = l.shift - tile))
+                finger > widthPx - edge && slot < clips.lastIndex -> update(l.copy(shift = l.shift + tile))
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.72f))) {
+        val others = clips.filter { it.id != lift.id }
+        others.forEachIndexed { k, c ->
+            val slot = if (k < target) k else k + 1
+            val x by androidx.compose.animation.core.animateFloatAsState(lift.anchorX - tile / 2 + (slot - lift.start) * tile - lift.shift, label = "slot")
+            ReorderTile(c, Modifier.offset { IntOffset(x.roundToInt(), 0) }.align(Alignment.CenterStart), lifted = false)
+        }
+        clips.firstOrNull { it.id == lift.id }?.let { c ->
+            ReorderTile(c, Modifier.offset { IntOffset((lift.anchorX - tile / 2 + lift.dx).roundToInt(), 0) }.align(Alignment.CenterStart), lifted = true)
+        }
+        Text(
+            "Drag to move · release to drop", Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+            color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@Composable
+private fun ReorderTile(c: StudioClip, modifier: Modifier, lifted: Boolean) {
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (lifted) 1.15f else 0.92f, label = "lift")
+    Box(
+        modifier.size(REORDER_TILE).graphicsLayer { scaleX = scale; scaleY = scale; shadowElevation = if (lifted) 16f else 0f }
+            .clip(RoundedCornerShape(8.dp)).border(if (lifted) 2.dp else 0.dp, if (lifted) Accent else Color.Transparent, RoundedCornerShape(8.dp)),
+    ) {
+        FrameTile(c.uri, c.startMs, c.look, REORDER_TILE)
     }
 }
 
@@ -550,7 +629,14 @@ private fun Ruler(totalMs: Long, pxPerMs: Float) {
 }
 
 @Composable
-private fun ClipStrip(c: StudioClip, pxPerMs: Float, selected: Boolean, enabled: Boolean, onTap: () -> Unit, onDrag: (StudioClip) -> Unit, onDragEnd: () -> Unit) {
+private fun ClipStrip(
+    c: StudioClip, pxPerMs: Float, selected: Boolean, enabled: Boolean, onTap: () -> Unit, onDrag: (StudioClip) -> Unit, onDragEnd: () -> Unit,
+    onLift: (Float) -> Unit, onLiftMove: (Float) -> Unit, onLiftEnd: (Boolean) -> Unit,
+) {
+    var rootX by remember { mutableFloatStateOf(0f) }
+    val lift by androidx.compose.runtime.rememberUpdatedState(onLift)
+    val move by androidx.compose.runtime.rememberUpdatedState(onLiftMove)
+    val end by androidx.compose.runtime.rememberUpdatedState(onLiftEnd)
     val density = LocalDensity.current
     val widthPx = c.durationMs * pxPerMs
     val width = with(density) { widthPx.toDp() }
@@ -559,6 +645,15 @@ private fun ClipStrip(c: StudioClip, pxPerMs: Float, selected: Boolean, enabled:
     Box(
         Modifier.width(width).height(TILE).clip(shape)
             .border(if (selected) 2.dp else 0.5.dp, if (selected) ClipBorder else Color.Black, shape)
+            .onGloballyPositioned { rootX = it.positionInRoot().x }
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { at -> lift(rootX + at.x) },
+                    onDragEnd = { end(true) },
+                    onDragCancel = { end(false) },
+                ) { change, amount -> change.consume(); move(amount.x) }
+            }
             .clickable(enabled = enabled, onClick = onTap),
     ) {
         // Filmstrip: one frame per tile, taken from where that tile sits in the source.
@@ -615,12 +710,12 @@ private fun TrimHandle(modifier: Modifier, onStart: () -> Unit, onEnd: () -> Uni
 }
 
 @Composable
-private fun FrameTile(uri: String, atMs: Long, look: Look) {
+private fun FrameTile(uri: String, atMs: Long, look: Look, size: androidx.compose.ui.unit.Dp = TILE) {
     val context = LocalContext.current
-    val sizePx = with(LocalDensity.current) { TILE.roundToPx() }
+    val sizePx = with(LocalDensity.current) { size.roundToPx() }
     var bitmap by remember(uri, atMs) { mutableStateOf(FrameCache.peek(uri, atMs)) }
     LaunchedEffect(uri, atMs) { if (bitmap == null) bitmap = FrameCache.frame(context, uri, atMs, sizePx) }
-    Box(Modifier.size(TILE).background(Color(0xFF2A2A30))) {
+    Box(Modifier.size(size).background(Color(0xFF2A2A30))) {
         bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = lookFilter(look)) }
     }
 }
