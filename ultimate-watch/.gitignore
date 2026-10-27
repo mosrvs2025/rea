@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+android/.gradle/
+android/local.properties
+android/**/build/
+*.pem
+*.key
