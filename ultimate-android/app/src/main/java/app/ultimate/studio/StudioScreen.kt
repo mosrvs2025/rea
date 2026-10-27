@@ -100,7 +100,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -619,7 +618,8 @@ private fun TrimHandle(modifier: Modifier, onStart: () -> Unit, onEnd: () -> Uni
 private fun FrameTile(uri: String, atMs: Long, look: Look) {
     val context = LocalContext.current
     val sizePx = with(LocalDensity.current) { TILE.roundToPx() }
-    val bitmap by produceState<Bitmap?>(FrameCache.peek(uri, atMs), uri, atMs) { value = FrameCache.frame(context, uri, atMs, sizePx) }
+    var bitmap by remember(uri, atMs) { mutableStateOf(FrameCache.peek(uri, atMs)) }
+    LaunchedEffect(uri, atMs) { if (bitmap == null) bitmap = FrameCache.frame(context, uri, atMs, sizePx) }
     Box(Modifier.size(TILE).background(Color(0xFF2A2A30))) {
         bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, colorFilter = lookFilter(look)) }
     }
@@ -680,7 +680,8 @@ private fun VolumePanel(c: StudioClip, onCommit: (Float) -> Unit) {
 @Composable
 private fun FiltersPanel(c: StudioClip, onPick: (Look) -> Unit, onAll: (Look) -> Unit) {
     val context = LocalContext.current
-    val thumb by produceState<Bitmap?>(null, c.uri, c.startMs) { value = FrameCache.frame(context, c.uri, c.startMs, 240) }
+    var thumb by remember(c.uri, c.startMs) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(c.uri, c.startMs) { thumb = FrameCache.frame(context, c.uri, c.startMs, 240) }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
         items(Look.entries) { look ->
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onPick(look) }) {
