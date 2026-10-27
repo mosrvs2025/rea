@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTTPS only. Besides Android's built-in authorities this trusts certificate authorities the person has installed themselves
+  (Settings > Security > Install a certificate), which is how a private server on a home network is trusted without a public
+  certificate. Certificate and host-name checking stay fully on.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

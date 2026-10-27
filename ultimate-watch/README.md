@@ -1,6 +1,6 @@
-# Ultimate Watch — early browser prototype
+# Ultimate Watch — early prototype
 
-An independently implemented experiment for turning spare phones into local cameras. This is **not an Android APK**. A phone's browser sends one JPEG per second to a private server; an authenticated dashboard shows recent frames from up to 16 named cameras. Frames are held in RAM only; there is no recording, audio, motion detection, AI, remote wake, or reliable background monitoring. Camera capture stops when the browser is closed and may pause when the screen locks. This is not yet a security system and has not been tested on a physical phone.
+An independently implemented experiment for turning spare phones into local cameras. There are two camera options: a native Android app in `android/` (foreground service, reconnection, optional bounded on-phone recording; see `SETUP.md`) and a browser page. In the browser option a phone's browser sends one JPEG per second to a private server; an authenticated dashboard shows recent frames from up to 16 named cameras. Frames are held in RAM only; there is no recording, audio, motion detection, AI, remote wake, or reliable background monitoring. Camera capture stops when the browser is closed and may pause when the screen locks. This is not yet a security system and has not been tested on a physical phone.
 
 ## Run
 
@@ -21,4 +21,4 @@ The base APK contains multiple TensorFlow Lite files, including `assets/ODA20260
 
 ## Next steps
 
-Native Android camera app with a user-started camera foreground service, clear notification, reconnection, screen-off testing and battery/thermal handling; then recordings with retention controls, motion detection, separate camera/viewer credentials and secure remote access. Preserve the plain Ultimate edition's no-network promise by shipping networking separately or in an explicitly network-enabled edition.
+Screen-off, thermal and long-run testing of the native app on real phones (not yet done); then motion detection, separate camera/viewer credentials and secure remote access. Original plan, kept for reference: recordings with retention controls, motion detection, separate camera/viewer credentials and secure remote access. Preserve the plain Ultimate edition's no-network promise by shipping networking separately or in an explicitly network-enabled edition.
