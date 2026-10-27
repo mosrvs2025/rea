@@ -34,7 +34,9 @@ class Tun : PacketSink {
 /** The real "internet" is a local server; fake addresses map onto it so no test needs the network. */
 class LoopbackNet(private val tcpPort: () -> Int, private val udpPort: () -> Int = { 0 }) : Net {
     var failConnect = false
+    var lastConnectIp = 0
     override fun connect(ip: Int, port: Int, timeoutMs: Int): Socket {
+        lastConnectIp = ip
         if (failConnect) throw java.io.IOException("connection refused")
         return Socket("127.0.0.1", tcpPort())
     }

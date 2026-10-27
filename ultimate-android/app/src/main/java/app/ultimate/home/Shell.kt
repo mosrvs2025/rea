@@ -39,6 +39,11 @@ class Shell(private val tools: List<Tool>) {
         top(Route.Library)
     }
 
+    fun showLibraryOf(toolId: String) {
+        _libraryFilter.value = toolId
+        top(Route.Library)
+    }
+
     /** The Library shortcut inside a tool: that tool's results first. */
     fun showLibraryForCurrentTool() {
         _libraryFilter.value = (_route.value as? Route.InTool)?.tool?.id

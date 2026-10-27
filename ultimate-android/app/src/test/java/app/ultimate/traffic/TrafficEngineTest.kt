@@ -130,6 +130,19 @@ class TrafficEngineTest {
         assertEquals(2L, engine.attempts.get())
     }
 
+    @Test fun tcpLookupsToTheStandInResolverGoToTheRealOneAndAreNamed() {
+        val srv = server { s -> val b = ByteArray(2); s.getInputStream().readNBytes(b, 0, 2); s.getOutputStream().write(b); s.close() }
+        val net = LoopbackNet({ srv.localPort }); val tun = Tun(); val engine = newEngine(net, tun)
+        val app = AppSim(engine, tun, server = FAKE_DNS, serverPort = 53)
+        assertTrue(app.connect()!!.syn)
+        app.write("hi"); app.readUntil(2)
+        assertEquals("hi", app.text())
+        assertEquals("never connect to the stand-in address itself", ip4(9, 9, 9, 9), net.lastConnectIp)
+        val rec = engine.records.values.single()
+        assertEquals("DNS lookups (system resolver)", rec.host)
+        engine.stop()
+    }
+
     @Test fun refusedConnectionsAreResetBackToTheApp() {
         val tun = Tun(); val net = LoopbackNet({ 1 }); net.failConnect = true
         val engine = newEngine(net, tun)

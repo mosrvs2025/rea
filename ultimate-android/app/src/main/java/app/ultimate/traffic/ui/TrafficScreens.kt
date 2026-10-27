@@ -11,6 +11,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.rotate
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -169,18 +171,15 @@ private fun SetupScreen(c: TrafficController, onExit: () -> Unit, error: String?
             error?.let {
                 item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
-            item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("What it can and can't see", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("✓  Which servers each app contacts, when, and how much data goes each way", style = MaterialTheme.typography.bodySmall)
-                        Text("✓  Site names, from DNS and the start of each secure connection", style = MaterialTheme.typography.bodySmall)
-                        Text("✓  Anything sent without encryption, shown as a warning", style = MaterialTheme.typography.bodySmall)
-                        Text("✗  What encrypted traffic says. Nothing is decrypted, and no certificate is installed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("✗  Traffic over IPv6 only (most apps still use IPv4)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+            item { Collapsible("What it can and can't see") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("✓  Which servers each app contacts, when, and how much data goes each way", style = MaterialTheme.typography.bodySmall)
+                    Text("✓  Site names, from DNS and the start of each secure connection", style = MaterialTheme.typography.bodySmall)
+                    Text("✓  Anything sent without encryption, shown as a warning", style = MaterialTheme.typography.bodySmall)
+                    Text("✗  What encrypted traffic says. Nothing is decrypted, and no certificate is installed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("✗  Traffic over IPv6 only (most apps still use IPv4)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
+            } }
             item { SafetyCard(autoStop, c::setAutoStop) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -306,6 +305,22 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                 }
                 else -> item { Box(Modifier.padding(horizontal = 16.dp)) { Terminal(lines, live = true, title = "traffic.log", startExpanded = true) } }
             }
+        }
+    }
+}
+
+/** A card whose body folds away: a tap on the header rotates the arrow and eases the content in or out. */
+@Composable
+fun Collapsible(title: String, startOpen: Boolean = false, body: @Composable () -> Unit) {
+    var open by rememberSaveable(title) { mutableStateOf(startOpen) }
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "arrow")
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().animateContentSize()) {
+            Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Icon(Icons.Rounded.KeyboardArrowDown, if (open) "Collapse" else "Expand", Modifier.rotate(turn))
+            }
+            if (open) Box(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) { body() }
         }
     }
 }
