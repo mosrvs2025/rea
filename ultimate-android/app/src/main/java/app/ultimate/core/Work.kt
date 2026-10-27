@@ -46,6 +46,8 @@ interface WorkSource {
     /** The current or most recent run's log. */
     val log: JobLog
     fun cancelWork()
+    /** Text of the notification button that calls [cancelWork]. */
+    val cancelLabel: String get() = "Cancel"
 }
 
 /** Every tool registers its work here; one foreground service keeps the process alive for all of them. */
@@ -134,7 +136,7 @@ class WorkService : Service() {
                 Intent(this, WorkService::class.java).setAction(ACTION_CANCEL).putExtra(EXTRA_ID, source.workId),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, "Cancel", cancel)
+            builder.addAction(0, source.cancelLabel, cancel)
         }
         return builder.build()
     }

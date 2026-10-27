@@ -100,7 +100,7 @@ fun TrafficScreen(c: TrafficController, onExit: () -> Unit) {
     val st by c.state.collectAsStateWithLifecycle()
     val sheet by c.hostSheet.collectAsStateWithLifecycle()
     when {
-        st.running -> LiveScreen(c, st.startedAt, st.captured, st.snapshot)
+        st.running -> LiveScreen(c, st.startedAt, st.captured, st.snapshot, st.autoStopAt)
         st.finished != null -> SummaryScreen(c, st.finished!!, onExit)
         else -> SetupScreen(c, onExit, st.error)
     }
@@ -124,6 +124,7 @@ private fun SetupScreen(c: TrafficController, onExit: () -> Unit, error: String?
     val selected by c.selected.collectAsStateWithLifecycle()
     val showNames by c.showNames.collectAsStateWithLifecycle()
     val blockAds by c.blockAds.collectAsStateWithLifecycle()
+    val autoStop by c.autoStop.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(Unit) { c.loadApps() }
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { if (it.resultCode == Activity.RESULT_OK) c.startNow() }
@@ -180,6 +181,7 @@ private fun SetupScreen(c: TrafficController, onExit: () -> Unit, error: String?
                     }
                 }
             }
+            item { SafetyCard(autoStop, c::setAutoStop) }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     SwitchRow("Show site names", "Refuses HTTP/3 (QUIC) so apps use normal HTTPS, where the name is visible.", showNames, c::setShowNames)
@@ -239,7 +241,7 @@ private fun SwitchRow(title: String, body: String, checked: Boolean, onChange: (
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<String>, snap: TrafficSnapshot) {
+private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<String>, snap: TrafficSnapshot, autoStopAt: Long) {
     var tab by rememberSaveable { mutableStateOf(0) }
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(startedAt) { while (true) { elapsed = System.currentTimeMillis() - startedAt; delay(500) } }
@@ -275,6 +277,13 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                 }
             }
             item { LiveStatus(captured.size, snap, Modifier.padding(horizontal = 16.dp)) }
+            if (autoStopAt > 0) item {
+                val left = (autoStopAt - startedAt - elapsed).coerceAtLeast(0)
+                Text(
+                    "Stops automatically in ${formatDuration(left)} · your apps return to normal",
+                    Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             item {
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Stat("Sent", snap.up, Modifier.weight(1f))
@@ -296,6 +305,25 @@ private fun LiveScreen(c: TrafficController, startedAt: Long, captured: List<Str
                     DnsRow(d.name, d.label, d.type, d.hit?.sdk, d.hit?.kind, d.blocked || c.isBlocked(d.name)) { c.setBlocked(d.name, !c.isBlocked(d.name)) }
                 }
                 else -> item { Box(Modifier.padding(horizontal = 16.dp)) { Terminal(lines, live = true, title = "traffic.log", startExpanded = true) } }
+            }
+        }
+    }
+}
+
+/** The promise that the inspector can't be forgotten: it stops itself, and the apps get their network back the moment it does. */
+@Composable
+private fun SafetyCard(autoStop: Int, onChange: (Int) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Stop automatically", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Only the chosen apps are routed through the inspector. If it ever stops, is closed from recent apps, or can't reach the internet, it shuts itself off and they go back to normal.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(15 to "15 min", 30 to "30 min", 60 to "1 hour", 180 to "3 hours", 0 to "Never").forEach { (m, label) ->
+                    FilterChip(autoStop == m, { onChange(m) }, { Text(label) })
+                }
             }
         }
     }
@@ -515,6 +543,18 @@ private fun SummaryScreen(c: TrafficController, s: FinishedSession, onExit: () -
         },
     ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            s.reason?.let { why ->
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)).padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.CheckCircle, null, tint = MaterialTheme.colorScheme.tertiary)
+                        Spacer(Modifier.width(12.dp))
+                        Text(why, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(28.dp)) {
                     Column(Modifier.fillMaxWidth().padding(24.dp)) {

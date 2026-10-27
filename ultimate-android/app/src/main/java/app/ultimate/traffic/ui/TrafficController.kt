@@ -29,6 +29,8 @@ class TrafficController(private val app: UltimateApp) {
     val selected = MutableStateFlow(prefs.getStringSet("selected", emptySet()).orEmpty().toSet())
     val showNames = MutableStateFlow(prefs.getBoolean("showNames", true))
     val blockAds = MutableStateFlow(prefs.getBoolean("blockAds", false))
+    /** Minutes until the inspector stops itself; 0 means it runs until stopped. */
+    val autoStop = MutableStateFlow(prefs.getInt("autoStop", 30))
     val userBlocked = MutableStateFlow(prefs.getStringSet("blocked", emptySet()).orEmpty().toSet())
     val installed = MutableStateFlow<List<PickApp>>(emptyList())
     val hostSheet = MutableStateFlow<String?>(null)
@@ -102,7 +104,12 @@ class TrafficController(private val app: UltimateApp) {
 
     private fun effectiveBlocked(): Set<String> = userBlocked.value + if (blockAds.value) TrackerDomains.suffixes(DomainKind.Ads) else emptySet()
 
-    fun config() = CaptureConfig(selected.value.toList(), showNames.value, effectiveBlocked())
+    fun setAutoStop(minutes: Int) {
+        autoStop.value = minutes
+        prefs.edit().putInt("autoStop", minutes).apply()
+    }
+
+    fun config() = CaptureConfig(selected.value.toList(), showNames.value, effectiveBlocked(), autoStop.value)
 
     fun startNow() = manager.start(config())
     fun stop() = manager.stop()

@@ -80,6 +80,12 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
     private val random = Random()
     @Volatile private var stopped = false
 
+    /** Connections and lookups the apps tried that were allowed through, and how many of them reached a server. A tunnel that keeps trying and never reaches anyone is leaving its apps offline. */
+    val attempts = AtomicLong()
+    val successes = AtomicLong()
+    /** Why [run] gave up, if it did because of a failure rather than the tunnel closing. */
+    @Volatile var failure: String? = null
+
     /** Domains (and their subdomains) refused at the DNS step, and connections to addresses learned from them. */
     @Volatile var blocked: Set<String> = emptySet()
 
@@ -95,11 +101,23 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
     /** Reads packets from the tunnel until it closes. */
     fun run(tun: InputStream) {
         val buf = ByteArray(32 * 1024)
+        var consecutiveErrors = 0
         try {
             while (!stopped) {
                 val n = tun.read(buf)
                 if (n < 0) break
-                if (n > 0) handle(buf, n)
+                if (n > 0) {
+                    // One odd packet, or a moment of thread exhaustion, must not end the capture; a run of failures must, so the apps get their network back.
+                    try {
+                        handle(buf, n)
+                        consecutiveErrors = 0
+                    } catch (t: Throwable) {
+                        if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                            failure = "The inspector hit repeated internal errors (${t.javaClass.simpleName}) and stopped to keep your apps online"
+                            break
+                        }
+                    }
+                }
             }
         } catch (_: IOException) {
         } finally {
@@ -163,6 +181,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
         }
         val created = TcpFlow(k, rec, seg)
         tcpFlows[k] = created
+        attempts.incrementAndGet()
         created.start()
     }
 
@@ -193,6 +212,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
                 try {
                     val s = net.connect(if (server == config.dnsIp) config.upstreamDns else server, serverPort, 10_000)
                     s.tcpNoDelay = true
+                    successes.incrementAndGet()
                     socket = s
                     synchronized(lock) {
                         if (closed) { s.close(); return@execute }
@@ -365,6 +385,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
             rec.uid = net.owner(Ip4Packet.UDP, ip.src, dg.srcPort, ip.dst, dg.dstPort)
             ipNames[ip.dst]?.let { rec.host = it; rec.hostSource = "DNS" }
             records[rec.id] = rec
+            attempts.incrementAndGet()
             UdpFlow(k, rec, ip.src, dg.srcPort, ip.dst, dg.dstPort).also { it.open() }
         }
         flow.send(dg.ip.data, dg.payloadOffset, dg.payloadLength)
@@ -410,6 +431,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
                         lastActive = System.currentTimeMillis()
                         rec.lastAt = lastActive
                         rec.down.addAndGet(p.length.toLong())
+                        successes.incrementAndGet()
                         sink.write(PacketBuilder.udp(server, client, serverPort, clientPort, buf, 0, p.length))
                     } catch (_: java.net.SocketTimeoutException) {
                         if (System.currentTimeMillis() - lastActive > UDP_IDLE_MS) break
@@ -448,6 +470,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
         }
         val payload = ip.data.copyOfRange(dg.payloadOffset, dg.payloadOffset + dg.payloadLength)
         val upstream = if (asked == config.dnsIp) config.upstreamDns else asked
+        attempts.incrementAndGet()
         pool.execute {
             try {
                 val s = net.datagram()
@@ -457,6 +480,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
                     val buf = ByteArray(4096)
                     val p = DatagramPacket(buf, buf.size)
                     s.receive(p)
+                    successes.incrementAndGet()
                     Dns.parseResponse(buf, 0, p.length)?.let { r -> r.addresses.forEach { addr -> if (r.name.isNotEmpty()) ipNames[addr] = r.name } }
                     sink.write(PacketBuilder.udp(asked, client, 53, clientPort, buf, 0, p.length))
                 } finally {
@@ -493,6 +517,7 @@ class TrafficEngine(private val net: Net, private val config: EngineConfig, priv
         private const val MAX_FLOWS = 400
         private const val MAX_RECORDS = 2000
         private const val MAX_DNS_LOG = 1500
+        private const val MAX_CONSECUTIVE_ERRORS = 25
         private const val TCP_IDLE_MS = 120_000L
         private const val UDP_IDLE_MS = 60_000L
         private val FIN = ByteArray(0)

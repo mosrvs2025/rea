@@ -42,7 +42,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** What the user chose before starting. */
-data class CaptureConfig(val packages: List<String>, val showNames: Boolean, val blocked: Set<String>)
+data class CaptureConfig(val packages: List<String>, val showNames: Boolean, val blocked: Set<String>, val autoStopMinutes: Int = 30)
 
 /** A capture that has ended; kept so the summary can be shown and a report saved. */
 data class FinishedSession(val startedAt: Long, val endedAt: Long, val snapshot: TrafficSnapshot, val labels: List<String>, val reason: String?)
@@ -54,6 +54,8 @@ data class TrafficState(
     val snapshot: TrafficSnapshot = TrafficSnapshot(),
     val error: String? = null,
     val finished: FinishedSession? = null,
+    /** When the inspector will stop by itself, or 0 if it runs until stopped. */
+    val autoStopAt: Long = 0,
 )
 
 /** A saved report, shown in the Library. */
@@ -72,8 +74,9 @@ class TrafficManager(private val context: Context) : WorkSource {
     override val log = JobLog()
     override val work: StateFlow<WorkSnapshot> = _state.map { s ->
         if (s.running) WorkSnapshot(active = true, title = "Inspecting ${s.captured.size} app${if (s.captured.size == 1) "" else "s"}", detail = "${formatBytes(s.snapshot.up + s.snapshot.down)} seen")
-        else WorkSnapshot()
+        else s.finished?.reason?.let { WorkSnapshot(doneTitle = "Traffic inspector stopped", doneText = it) } ?: WorkSnapshot()
     }.stateIn(scope, SharingStarted.Eagerly, WorkSnapshot())
+    override val cancelLabel = "Stop"
     override fun cancelWork() = stop()
 
     @Volatile var pendingConfig: CaptureConfig? = null
@@ -86,6 +89,12 @@ class TrafficManager(private val context: Context) : WorkSource {
     val savedReports: StateFlow<List<TrafficReport>> = _reports.asStateFlow()
     private var userBlocked: Set<String> = emptySet()
 
+    private companion object {
+        /** Attempts with no success at all for this long mean the tunnel is not carrying traffic. */
+        const val STALL_MS = 40_000L
+        const val STALL_MIN_ATTEMPTS = 8
+    }
+
     /** Call after the user has approved Android's VPN dialog. */
     fun start(config: CaptureConfig) {
         if (_state.value.running) return
@@ -95,12 +104,21 @@ class TrafficManager(private val context: Context) : WorkSource {
         labels.clear()
         log.reset()
         log.info("Traffic inspector · ${config.packages.size} app${if (config.packages.size == 1) "" else "s"} · site names ${if (config.showNames) "on (HTTP/3 refused)" else "off"}")
-        _state.value = TrafficState(running = true, startedAt = System.currentTimeMillis(), captured = config.packages)
+        val now = System.currentTimeMillis()
+        stopRequested = false
+        _state.value = TrafficState(
+            running = true, startedAt = now, captured = config.packages,
+            autoStopAt = if (config.autoStopMinutes > 0) now + config.autoStopMinutes * 60_000L else 0,
+        )
         context.startService(Intent(context, TrafficVpnService::class.java))
     }
 
-    fun stop() {
-        context.startService(Intent(context, TrafficVpnService::class.java).setAction(TrafficVpnService.ACTION_STOP))
+    @Volatile private var stopRequested = false
+
+    /** Stops the capture and gives the apps their normal network back. [reason] is shown to the user when the stop was not their own. */
+    fun stop(reason: String? = null) {
+        stopRequested = true
+        context.startService(Intent(context, TrafficVpnService::class.java).setAction(TrafficVpnService.ACTION_STOP).putExtra(TrafficVpnService.EXTRA_REASON, reason))
     }
 
     /** Applies the user's blocked domains to the running capture right away. */
@@ -115,11 +133,27 @@ class TrafficManager(private val context: Context) : WorkSource {
         engine = e
         e.blocked = userBlocked
         ticker?.cancel()
+        var okAt = System.currentTimeMillis()
+        var okSuccesses = 0L
+        var okAttempts = 0L
         ticker = scope.launch {
             while (isActive) {
                 val snap = snapshot(e)
                 _state.update { if (it.running) it.copy(snapshot = snap) else it }
                 narrate(snap)
+                val now = System.currentTimeMillis()
+                // Safety nets, so the chosen apps are never left offline by an inspector that is forgotten or not working.
+                if (!stopRequested) {
+                    val until = _state.value.autoStopAt
+                    val successes = e.successes.get()
+                    val attempts = e.attempts.get()
+                    if (successes > okSuccesses) { okSuccesses = successes; okAttempts = attempts; okAt = now }
+                    when {
+                        until > 0 && now >= until -> stop("Stopped automatically after ${(until - _state.value.startedAt) / 60_000} minutes. Your apps are back to normal.")
+                        attempts - okAttempts >= STALL_MIN_ATTEMPTS && now - okAt >= STALL_MS ->
+                            stop("Nothing could reach the internet for ${STALL_MS / 1000} seconds, so the inspector stopped and your apps are back to normal.")
+                    }
+                }
                 delay(500)
             }
         }

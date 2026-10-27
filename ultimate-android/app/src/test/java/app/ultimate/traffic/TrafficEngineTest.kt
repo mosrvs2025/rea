@@ -59,6 +59,7 @@ class TrafficEngineTest {
         assertTrue("every packet the engine wrote must have valid checksums", tun.all.all { PacketBuilder.valid(Ip4Packet.parse(it, it.size)!!) })
         val rec = engine.records.values.single()
         assertEquals(5L, rec.up.get()); assertEquals(5L, rec.down.get()); assertEquals(10_123, rec.uid)
+        assertEquals(1L, engine.attempts.get()); assertEquals(1L, engine.successes.get())
         engine.stop()
     }
 
@@ -90,6 +91,43 @@ class TrafficEngineTest {
         assertArrayEquals(payload, app.received.toByteArray())
         assertTrue("in flight peaked at $inflightMax with an 8000-byte window", inflightMax <= 8_000 + 1360)
         engine.stop()
+    }
+
+    @Test fun repeatedInternalFailuresEndTheRunSoTheServiceCanReleaseTheTunnel() {
+        val throwing = object : app.ultimate.traffic.engine.Net by LoopbackNet({ 1 }) {
+            override fun owner(protocol: Int, srcIp: Int, srcPort: Int, dstIp: Int, dstPort: Int): Int = throw IllegalStateException("boom")
+        }
+        val engine = newEngine(throwing, Tun())
+        val packets = (0 until 40).map { PacketBuilder.tcp(PHONE, SERVER, 41_000 + it, 443, 1_000, 0, Tcp.SYN, 65535) }.iterator()
+        val tun = object : java.io.InputStream() {
+            override fun read() = -1
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (!packets.hasNext()) return -1
+                val p = packets.next(); System.arraycopy(p, 0, b, off, p.size); return p.size
+            }
+        }
+        engine.run(tun)
+        assertNotNull("a run of failures must be reported, not swallowed", engine.failure)
+    }
+
+    @Test fun oneBadPacketDoesNotEndTheCapture() {
+        val srv = server { s -> s.getOutputStream().write(1); s.close() }
+        var calls = 0
+        val flaky = object : app.ultimate.traffic.engine.Net by LoopbackNet({ srv.localPort }) {
+            override fun owner(protocol: Int, srcIp: Int, srcPort: Int, dstIp: Int, dstPort: Int): Int { if (calls++ == 0) throw IllegalStateException("once"); return 1 }
+        }
+        val engine = newEngine(flaky, Tun())
+        val packets = (0 until 3).map { PacketBuilder.tcp(PHONE, SERVER, 42_000 + it, 443, 1_000, 0, Tcp.SYN, 65535) }.iterator()
+        val tun = object : java.io.InputStream() {
+            override fun read() = -1
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (!packets.hasNext()) return -1
+                val p = packets.next(); System.arraycopy(p, 0, b, off, p.size); return p.size
+            }
+        }
+        engine.run(tun)
+        assertNull(engine.failure)
+        assertEquals(2L, engine.attempts.get())
     }
 
     @Test fun refusedConnectionsAreResetBackToTheApp() {

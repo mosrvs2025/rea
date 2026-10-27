@@ -21,7 +21,7 @@ class TrafficVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            shutdown("Stopped")
+            shutdown(intent.getStringExtra(EXTRA_REASON) ?: "Stopped")
             return START_NOT_STICKY
         }
         val config = manager.pendingConfig
@@ -68,15 +68,26 @@ class TrafficVpnService : VpnService() {
             manager.onEstablished(e)
             log.ok("Tunnel up. Capturing $added app${if (added == 1) "" else "s"}.")
             thread(name = "traffic-tun", isDaemon = true) {
-                e.run(FileInputStream(fd.fileDescriptor))
-                // The tunnel closed from the other side (revoked, or another VPN took over).
-                if (engine === e) shutdown("The tunnel closed")
+                // However the engine ends, the tunnel must be released: an open tunnel with nobody reading it cuts the chosen apps off.
+                try {
+                    e.run(FileInputStream(fd.fileDescriptor))
+                } catch (t: Throwable) {
+                    e.failure = e.failure ?: "The inspector crashed (${t.javaClass.simpleName}) and stopped to keep your apps online"
+                } finally {
+                    if (engine === e) shutdown(e.failure ?: "The tunnel closed")
+                }
             }
         } catch (e: Exception) {
             log.error("Could not start: ${e.message}")
             manager.onEnded(e.message ?: "Could not start the tunnel")
             shutdown(null)
         }
+    }
+
+    /** Swiping the app away ends the inspection, so it can never keep running unseen. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        shutdown("Stopped because the app was closed")
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onRevoke() {
@@ -101,6 +112,7 @@ class TrafficVpnService : VpnService() {
 
     companion object {
         const val ACTION_STOP = "app.ultimate.traffic.STOP"
+        const val EXTRA_REASON = "reason"
         /** The tunnel's own address, and the pretend DNS server apps are told to use. */
         val TUN_IP = ip4(10, 215, 173, 1)
         val DNS_IP = ip4(10, 215, 173, 2)
