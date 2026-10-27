@@ -1,6 +1,8 @@
 package app.ultimate
 
 import android.app.Application
+import app.ultimate.studio.StudioManager
+import app.ultimate.studio.StudioTool
 import app.ultimate.sound.SoundTool
 import app.ultimate.audio.AudioTool
 import app.ultimate.audio.engine.AudioManager
@@ -49,8 +51,11 @@ class UltimateApp : Application() {
     // Traffic inspector (only in editions that include it and the internet permission it needs)
     val trafficManager: TrafficManager by lazy { TrafficManager(this) }
 
+    val studioManager: StudioManager by lazy { StudioManager(this, work) }
+
     val tools: List<Tool> by lazy {
         buildList {
+            if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
             if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
@@ -66,5 +71,6 @@ class UltimateApp : Application() {
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)
         if (BuildConfig.HAS_AUDIO) work.register(audioManager)
         if (BuildConfig.HAS_TRAFFIC) work.register(trafficManager)
+        if (BuildConfig.HAS_STUDIO) work.register(studioManager)
     }
 }

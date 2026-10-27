@@ -8,6 +8,7 @@ This is an independent app in this repository's `ultimate-android/` directory, u
 
 | Tool | What it does |
 | --- | --- |
+| **Studio** | Offline video editor: clip timeline, trim/split/reorder, speed, looks, titles, music, manual BPM cuts, saved projects and H.264/AAC export. Included in Ultimate/Ultimate+ and as a standalone edition. |
 | **Squeeze** | Shrinks videos with the phone's hardware encoders (HEVC when available), with size targets, a live synced before/after player and measured stats. |
 | **Video to audio** | Extracts a video's sound as **MP3** (real LAME encoding), **M4A** (the original AAC, copied untouched) or **WAV**. Trim, mono, bitrate choice, live waveform, in-app player. |
 | **Sound meter** | Live microphone levels, energy averages, a level timeline, reference calibration, named sessions, comparisons and CSV export. Foreground-screen capture only; no audio files are recorded. |
@@ -88,3 +89,13 @@ Uncalibrated values are **dBFS** (digital microphone levels), with a −120 dBFS
 The timeline retains the latest 120 roughly one-second intervals; full session intervals remain in the saved session and CSV. The elapsed counter measures captured samples, not wall-clock gaps. The session records why capture ended. Energy averages weight actual sample counts. Min/max refer to captured read-block RMS levels; sample peak is a digital sample peak. No fabricated random or history-dependent boosts are applied. Sessions can be renamed, compared, deleted and exported using Android's document picker. Exported CSV includes digital levels and separate calibration/estimated-SPL columns.
 
 Sound-meter unit tests cover silence, a sine wave, amplitude doubling, uneven reads, clipping, partial buffers and determinism. Physical-device accuracy and interruption/lifecycle testing remain required before relying on readings.
+
+## Studio
+
+Build standalone with `gradle :app:assembleStudioRelease`; build the toolbox with `gradle :app:assembleUltimateRelease`. Studio uses the Android document picker and retained read grants, so it does not need broad media-library permissions. Standalone Studio and Ultimate remain offline. Ultimate+ retains the traffic inspector's internet permission; Studio itself does not make network requests.
+
+Add videos, select a clip, trim/split or reorder it, then choose Looks, Titles or Music. Saved drafts reopen from Projects. The music track loops to the film length; BPM is entered manually. Split clips to time different lyric/title cards. Canvas choices are portrait, landscape and square; exports offer 720 or 1080 short-side resolution with H.264/AAC MP4 and no added watermark. Output goes to Movies/Ultimate Studio and the shared Library, with progress and cancellation in Activity.
+
+Drafts reference original files rather than bundling them. Deleting/moving originals or revoking document access can prevent reopening/exporting; failures are shown rather than silently dropping clips. Preview may have brief boundary gaps; the exported composition is continuous. HDR exports are tone-mapped to SDR. Phone-specific codec/GPU behavior still requires device testing. This build does not include automatic captions, AI generation, multi-video overlays, keyframes or transitions.
+
+See `docs/app-investigations/capcut-19.4.0.md` at the repository root for artifact evidence, independent implementation choices and the next useful inputs.
