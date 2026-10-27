@@ -1,5 +1,6 @@
 import { digestCanonicalValue } from "../canonicalDigest.js";
 import type { Evidence } from "../evidence.js";
+import { machoRuntimeSymbolName } from "../native/machoSymbolName.js";
 import type { ManagedNativeObservationFacts } from "./managedNativeVerificationSource.js";
 import type { ManagedNativeBoundaryInspection } from "./managedArtifact.js";
 import type {
@@ -40,13 +41,14 @@ export const collectNativeSymbols = (
   return { symbols, accepted, unsupported, moduleFormatsByEvidenceId };
 };
 
-const normalizedSymbolName = (native: NativeSymbol): string =>
-  native.source === "macho-export" && native.name.startsWith("_")
-    ? native.name.slice(1)
+/** P/Invoke resolves a Mach-O export through dlsym, which names it without the symbol-table prefix. */
+const lookupSymbolName = (native: NativeSymbol): string | null =>
+  native.source === "macho-export"
+    ? machoRuntimeSymbolName(native.name)
     : native.name;
 
 const sameSymbolName = (expected: string, native: NativeSymbol): boolean =>
-  expected === normalizedSymbolName(native);
+  expected === lookupSymbolName(native);
 
 type ModuleCompatibility = "match" | "mismatch" | "unknown";
 
@@ -351,12 +353,17 @@ const matchPinvoke = (
     );
   const exact = candidates.find(
     (symbol) =>
-      managed.import_name === normalizedSymbolName(symbol) &&
+      managed.import_name === lookupSymbolName(symbol) &&
       moduleRelation(symbol) === "match",
   );
-  const unknownModule = candidates.find(
-    (symbol) => moduleRelation(symbol) === "unknown",
+  const exactUnknownModule = candidates.find(
+    (symbol) =>
+      managed.import_name === lookupSymbolName(symbol) &&
+      moduleRelation(symbol) === "unknown",
   );
+  const unknownModule =
+    exactUnknownModule ??
+    candidates.find((symbol) => moduleRelation(symbol) === "unknown");
   const decorated = candidates.find(
     (symbol) => moduleRelation(symbol) === "match",
   );
@@ -380,7 +387,12 @@ const matchPinvoke = (
         candidates,
       },
     };
-  if (unknownModule !== undefined)
+  // Preserve an exact-name candidate's uncertainty, but an unrelated unknown
+  // module must not displace an observed module match for a decorated name.
+  if (
+    unknownModule !== undefined &&
+    (exactUnknownModule !== undefined || decorated === undefined)
+  )
     return {
       match: {
         status: "unresolved",
