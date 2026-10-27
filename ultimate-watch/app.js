@@ -1,0 +1,15 @@
+'use strict';
+const $=id=>document.getElementById(id); let stream=null,timer=null,viewTimer=null;
+function fail(message){$('error').textContent=message||''}
+async function api(path,opts={}){const r=await fetch(path,opts);if(!r.ok)throw Error(await r.text()||`Request failed (${r.status})`);return r}
+function locked(){stop();clearInterval(viewTimer);$('login').hidden=false;$('app').hidden=true}
+function unlocked(){$('login').hidden=true;$('app').hidden=false;showViewer()}
+$('loginForm').onsubmit=async e=>{e.preventDefault();fail('');try{await api('/login',{method:'POST',body:new URLSearchParams({password:$('password').value})});$('password').value='';unlocked()}catch(e){fail(e.message)}};
+$('logout').onclick=async()=>{try{await api('/api/logout',{method:'POST'})}finally{locked()}};
+function showViewer(){$('viewer').hidden=false;$('camera').hidden=true;refresh();clearInterval(viewTimer);viewTimer=setInterval(refresh,2000)}
+$('viewerTab').onclick=showViewer;$('cameraTab').onclick=()=>{$('viewer').hidden=true;$('camera').hidden=false;clearInterval(viewTimer)};
+async function refresh(){try{const names=await (await api('/api/cameras')).json();$('empty').hidden=names.length>0;const container=$('cameras');container.replaceChildren();for(const name of names){const card=document.createElement('div');card.className='card';const label=document.createElement('h3');label.textContent=name;const img=document.createElement('img');img.alt=`Live view from ${name}`;img.src=`/api/frame/${encodeURIComponent(name)}?t=${Date.now()}`;card.append(label,img);container.append(card)}}catch(e){fail(e.message)}}
+function stop(){clearInterval(timer);timer=null;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$('preview').srcObject=null;$('start').disabled=false;$('stop').disabled=true;$('status').textContent='Camera is off.'}
+$('stop').onclick=stop;
+$('start').onclick=async()=>{fail('');const name=$('name').value.trim();if(!/^[A-Za-z0-9_-]{1,32}$/.test(name)){fail('Give your camera a name using letters, numbers, - or _.');return}try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:$('facing').value},width:{ideal:640},height:{ideal:360}},audio:false});$('preview').srcObject=stream;$('start').disabled=true;$('stop').disabled=false;$('status').textContent='Monitoring is on. Keep this page open.';const canvas=document.createElement('canvas');let busy=false;const send=async()=>{if(!stream||busy||!$('preview').videoWidth)return;busy=true;try{canvas.width=$('preview').videoWidth;canvas.height=$('preview').videoHeight;canvas.getContext('2d').drawImage($('preview'),0,0);const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',.65));if(blob)await api(`/api/frame/${encodeURIComponent(name)}`,{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob})}catch(e){fail(`Connection lost: ${e.message}`)}finally{busy=false}};timer=setInterval(send,1000);send()}catch(e){stop();fail(`Could not start camera: ${e.message}`)}};
+window.addEventListener('pagehide',stop);
