@@ -19,6 +19,28 @@ class StudioTimelineTest {
         val a = clip(2f); val b = clip().copy(id = "b")
         assertEquals(4000, Timeline.offset(StudioProject(clips = listOf(a, b)), "b"))
     }
+    @Test fun locateFindsTheClipUnderTheOutputClock() {
+        val a = clip(2f)                    // 4000 ms on the output clock
+        val b = clip().copy(id = "b")       // 8000 ms
+        val p = StudioProject(clips = listOf(a, b))
+        assertEquals("a" to 0L, Timeline.locate(p, 0)!!.let { it.first.id to it.second })
+        assertEquals("a" to 3999L, Timeline.locate(p, 3999)!!.let { it.first.id to it.second })
+        assertEquals("b" to 0L, Timeline.locate(p, 4000)!!.let { it.first.id to it.second })
+        assertEquals("the very end belongs to the last clip", "b" to 8000L, Timeline.locate(p, 12_000)!!.let { it.first.id to it.second })
+        assertEquals("b" to 8000L, Timeline.locate(p, 99_000)!!.let { it.first.id to it.second })
+        assertNull(Timeline.locate(StudioProject(), 0))
+        assertEquals(listOf(0L, 4000L, 12_000L), Timeline.boundaries(p))
+    }
+
+    @Test fun trimsStayInsideTheSourceAndKeepAMinimumLength() {
+        val c = clip()                       // source 10000, kept 1000..9000
+        assertEquals(0, Timeline.trimStart(c, -500).startMs)
+        assertEquals(c.endMs - Timeline.MIN_CLIP_MS, Timeline.trimStart(c, 9500).startMs)
+        assertEquals(10_000, Timeline.trimEnd(c, 20_000).endMs)
+        assertEquals(c.startMs + Timeline.MIN_CLIP_MS, Timeline.trimEnd(c, 0).endMs)
+        Timeline.validate(StudioProject(clips = listOf(Timeline.trimStart(c, 9500), Timeline.trimEnd(c, 0))))
+    }
+
     @Test fun undoRedoPreserveEveryEditAndNewEditsInvalidateRedo() {
         val h = StudioHistory(); val a = StudioProject(name = "A"); val b = a.copy(name = "B")
         h.record(a); assertEquals(a, h.undo(b)); assertEquals(b, h.redo(a))

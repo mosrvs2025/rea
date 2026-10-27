@@ -40,6 +40,27 @@ object Timeline {
         project.music?.let { require(it.startMs >= 0 && it.durationMs - it.startMs >= MIN_CLIP_MS && it.volume in 0f..1f) { "Invalid music trim or volume" } }
     }
     fun offset(project: StudioProject, id: String): Long = project.clips.takeWhile { it.id != id }.sumOf { it.durationMs }
+
+    /** The clip under [globalMs] on the output clock, and how far into it (output ms). The very end belongs to the last clip. */
+    fun locate(project: StudioProject, globalMs: Long): Pair<StudioClip, Long>? {
+        if (project.clips.isEmpty()) return null
+        var start = 0L
+        project.clips.forEachIndexed { i, c ->
+            val end = start + c.durationMs
+            if (globalMs < end || i == project.clips.lastIndex) return c to (globalMs - start).coerceIn(0, c.durationMs)
+            start = end
+        }
+        return null
+    }
+
+    /** Clip edges on the output clock, for snapping the playhead. */
+    fun boundaries(project: StudioProject): List<Long> = project.clips.runningFold(0L) { at, c -> at + c.durationMs }
+
+    /** Moves the in-point, keeping at least [MIN_CLIP_MS] and staying inside the source. */
+    fun trimStart(c: StudioClip, startMs: Long): StudioClip = c.copy(startMs = startMs.coerceIn(0, c.endMs - MIN_CLIP_MS))
+
+    /** Moves the out-point, keeping at least [MIN_CLIP_MS] and staying inside the source. */
+    fun trimEnd(c: StudioClip, endMs: Long): StudioClip = c.copy(endMs = endMs.coerceIn(c.startMs + MIN_CLIP_MS, c.sourceMs))
     fun split(clip: StudioClip, outputPositionMs: Long): List<StudioClip> {
         val sourceAt = clip.startMs + (outputPositionMs * clip.speed).roundToLong()
         require(sourceAt - clip.startMs >= MIN_CLIP_MS && clip.endMs - sourceAt >= MIN_CLIP_MS) { "Move the playhead away from the clip edges" }
