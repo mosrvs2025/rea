@@ -40,6 +40,7 @@ class UltimateApp : Application() {
     val pluckRepository: AppRepository by lazy { AppRepository(this) }
     val pluckHistory: HistoryStore by lazy { HistoryStore(this) }
     val pluckScans: ScanStore by lazy { ScanStore(this) }
+    val lanManager by lazy { app.ultimate.lan.LanManager(this) }
     val checkupManager by lazy { app.ultimate.checkup.engine.CheckupManager(this) }
     val pluckReplacements: ReplacementStore by lazy { ReplacementStore(this) }
     val pluckManager: ExtractManager by lazy { ExtractManager(this, pluckHistory, work) }
@@ -63,6 +64,7 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
+            if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
         }
     }
 
