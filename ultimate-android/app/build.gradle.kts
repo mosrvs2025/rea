@@ -179,8 +179,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Companion previews keep readable crash stacks and avoid the slow R8 pass.
+            isMinifyEnabled = providers.gradleProperty("companionBuild").orNull != "true"
+            isShrinkResources = providers.gradleProperty("companionBuild").orNull != "true"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }

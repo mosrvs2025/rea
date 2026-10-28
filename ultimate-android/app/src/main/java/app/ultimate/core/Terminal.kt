@@ -60,7 +60,7 @@ private val TerminalError = Color(0xFFFF7B72)
 private val TerminalInfo = Color(0xFF79C0FF)
 
 /**
- * A dark, monospace log panel. Collapsed it shows the latest lines; expanded it scrolls the whole run and follows new output.
+ * A dark, monospace log panel. Collapsed it hides the body; expanded it scrolls the whole run and follows new output.
  * Same look in light and dark themes, like a real terminal.
  */
 @Composable
@@ -97,16 +97,10 @@ fun Terminal(lines: List<LogLine>, live: Boolean, modifier: Modifier = Modifier,
             Text("waiting for output…", Modifier.padding(start = 14.dp, bottom = 14.dp), color = TerminalDim, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
             return@Column
         }
-        if (expanded) {
-            val state = rememberLazyListState()
-            LaunchedEffect(lines.size) { state.animateScrollToItem(lines.lastIndex) }
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(horizontal = 14.dp).padding(bottom = 12.dp), state = state) {
-                itemsIndexed(lines) { _, line -> Line(line) }
-            }
-        } else {
-            Column(Modifier.padding(horizontal = 14.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                lines.takeLast(4).forEach { Line(it) }
-            }
+        val state = rememberLazyListState()
+        LaunchedEffect(lines.size) { state.animateScrollToItem(lines.lastIndex) }
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp).padding(horizontal = 14.dp).padding(bottom = 12.dp), state = state) {
+            itemsIndexed(lines) { _, line -> Line(line) }
         }
     }
 }

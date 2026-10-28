@@ -22,7 +22,7 @@ Local HTTP is not encrypted; only offer files to devices on a trusted network.
 ## APK publishing
 
 `.github/workflows/ultimate-companion.yml` runs Android unit tests and builds a
-signed, minified APK. Successful builds replace the two rolling release assets:
+signed APK with readable diagnostic stacks. Successful builds replace the two rolling release assets:
 `Ultimate-Companion.apk` and `SHA256SUMS.txt`. No APKs enter Git history. Temporary
 Actions artifacts expire after seven days. Download URL stays the same:
 
