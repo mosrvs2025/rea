@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -75,7 +76,11 @@ private fun SuiteRoot(app: UltimateApp, route: Route) {
     val shell = app.shell
     val active by remember { combine(app.work.sources.map { it.work }) { s -> s.any { it.active } } }.collectAsStateWithLifecycle(false)
     when (route) {
-        is Route.InTool -> route.tool.Screen(onExit = shell::exitTool, launch = route.launch)
+        is Route.InTool -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+            // Each tool keeps its own state while the user hops between them.
+            androidx.compose.runtime.key(route.tool.id) { route.tool.Screen(onExit = shell::exitTool, launch = route.launch) }
+            ToolSwitcher(app, route.tool)
+        }
         else -> {
             BackHandler(enabled = route != Route.Home, onBack = shell::showHome)
             Scaffold(

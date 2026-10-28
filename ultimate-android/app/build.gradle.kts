@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.9.0"
+        versionCode = 6
+        versionName = "1.10.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -115,13 +115,25 @@ android {
         }
     }
 
+    // Releases are signed with the project's permanent key when CI provides it (GitHub secrets), so every published
+    // APK can update the last one. Local builds fall back to the debug key and cannot update a published install.
+    signingConfigs {
+        System.getenv("ULTIMATE_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("ULTIMATE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ULTIMATE_KEY_ALIAS")
+                keyPassword = System.getenv("ULTIMATE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Sideload convenience: signs with the debug key. Supply your own keystore for distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 
