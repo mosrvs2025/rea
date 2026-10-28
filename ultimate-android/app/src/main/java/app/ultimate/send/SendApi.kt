@@ -13,9 +13,20 @@ import android.os.Looper
 import android.os.StatFs
 import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
+import app.ultimate.recipes.ToolActions
+import app.ultimate.recipes.ActionResult
+import app.ultimate.pluck.model.AppItem
+import app.ultimate.squeeze.model.Settings as SqueezeSettings
+import app.ultimate.squeeze.model.Preset
+import app.ultimate.audio.model.AudioSettings
+import app.ultimate.audio.model.OutFormat
+import app.ultimate.photos.PhotoSettings
+import app.ultimate.photos.PhotoSize
+import app.ultimate.photos.PhotoCrop
 
 import app.ultimate.files.FileModel
 import app.ultimate.files.hasAllFiles
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -38,11 +49,95 @@ class SendApi(private val context: Context, private val server: SendServer) {
         get() = prefs.getBoolean("shareFiles", true)
         set(v) = prefs.edit().putBoolean("shareFiles", v).apply()
 
+    /** One tool run started from the computer, for the page to follow and to fetch its result. */
+    data class Run(val id: String, val tool: String, val name: String, val startedAt: Long, val state: String = "running", val line: String = "", val output: Uri? = null)
+    private val runs = java.util.concurrent.CopyOnWriteArrayList<Run>()
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+    private val actions by lazy { ToolActions(app) }
+    private var appsCache: Pair<Long, List<AppItem>>? = null
+
+    private fun update(id: String, change: (Run) -> Run) { val i = runs.indexOfFirst { it.id == id }; if (i >= 0) runs[i] = change(runs[i]) }
+
+    /** Starts [tool] on [uri] with [opts]; returns the run id at once, the work goes on in the tool's own manager. */
+    private fun start(tool: String, uri: Uri?, name: String, opts: JSONObject): String {
+        val id = SendHttp.newCode()
+        runs.add(0, Run(id, tool, name, System.currentTimeMillis()))
+        while (runs.size > 30) runs.removeAt(runs.lastIndex)
+        app.insights.count("remote.$tool")
+        scope.launch {
+            val result = runCatching {
+                when (tool) {
+                    "squeeze" -> actions.shrink(uri!!, SqueezeSettings(preset = runCatching { Preset.valueOf(opts.optString("preset", "Balanced")) }.getOrDefault(Preset.Balanced)))
+                    "audio" -> actions.audio(uri!!, AudioSettings(
+                        format = runCatching { OutFormat.valueOf(opts.optString("format", "Mp3")) }.getOrDefault(OutFormat.Mp3),
+                        kbps = opts.optInt("kbps", 192), mono = opts.optBoolean("mono", false), normalize = opts.optBoolean("normalize", false)))
+                    "photos" -> actions.photo(uri!!, PhotoSettings(
+                        size = runCatching { PhotoSize.valueOf(opts.optString("size", "Hd")) }.getOrDefault(PhotoSize.Hd),
+                        crop = runCatching { PhotoCrop.valueOf(opts.optString("crop", "None")) }.getOrDefault(PhotoCrop.None)))
+                    "transcribe" -> actions.transcribe(uri!!)
+                    "pluck" -> actions.pluck(opts.getString("package"))
+                    "checkup" -> { app.checkupManager.runScan(); val score = app.checkupManager.last.value?.first; ActionResult(null, "Checkup done: ${score ?: "?"}/100") }
+                    else -> error("unknown tool $tool")
+                }
+            }
+            result.onSuccess { r -> update(id) { it.copy(state = "done", line = r.line, output = r.output) } }
+                .onFailure { e -> update(id) { it.copy(state = "failed", line = e.message ?: "failed") }; app.insights.problem("Remote $tool", e.message ?: "failed") }
+        }
+        return id
+    }
+
     fun handle(req: SendHttp.Request, path: String, input: InputStream, out: OutputStream) {
         fun json(o: Any) = server.respond(out, 200, "application/json; charset=utf-8", o.toString().toByteArray())
         fun deny(why: String) = server.respond(out, 403, "application/json", JSONObject().put("error", why).toString().toByteArray())
         when {
             req.method == "GET" && path == "/phone" -> json(phone())
+            req.method == "GET" && path == "/tools" -> json(JSONArray(app.tools.map { it.id }))
+            req.method == "GET" && path == "/runs" -> json(JSONArray().apply { runs.forEach { r ->
+                put(JSONObject().put("id", r.id).put("tool", r.tool).put("name", r.name).put("state", r.state).put("line", r.line).put("at", r.startedAt).put("file", r.output != null))
+            } })
+            req.method == "GET" && path == "/runs/file" -> {
+                val r = runs.firstOrNull { it.id == req.query["id"] } ?: return deny("not found")
+                val uri = r.output ?: return deny("no file")
+                var name = r.name; var size = 0L
+                runCatching { context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst()) { name = c.getString(0) ?: name; size = c.getLong(1) } } }
+                server.stream(out, req, name, context.contentResolver.getType(uri) ?: "application/octet-stream", size) { context.contentResolver.openInputStream(uri) }
+            }
+            req.method == "PUT" && path == "/upload" -> {
+                // Files from the computer land in Downloads/Ultimate; the page then runs a tool on the returned uri.
+                val name = SendHttp.safeName(req.query["name"] ?: "file")
+                val length = req.headers["content-length"]?.toLongOrNull()?.takeIf { it >= 0 } ?: return deny("length required")
+                val uri = server.save(name, req.headers["content-type"] ?: "application/octet-stream", input, length)
+                json(JSONObject().put("uri", uri.toString()).put("name", name))
+            }
+            req.method == "POST" && path == "/run" -> {
+                val body = JSONObject(body(req, input, 20_000) ?: return deny("bad request"))
+                val tool = body.getString("tool")
+                if (app.tools.none { it.id == tool || (tool == "transcribe") }) return deny("This phone doesn't have that tool")
+                val (uri, name) = when (body.optString("kind")) {
+                    "file" -> { if (!shareFiles || !hasAllFiles(context)) return deny("Allow file browsing on the phone first"); val f = SendApiPaths.resolve(root, body.getString("path"))?.takeIf { it.isFile } ?: return deny("file not found"); Uri.fromFile(f) to f.name }
+                    "library" -> { val i = app.tools.flatMap { it.library.value }.firstOrNull { it.id == body.getString("id") && it.uri != null } ?: return deny("not in the Library"); Uri.parse(i.uri) to i.title }
+                    "uri" -> Uri.parse(body.getString("uri")) to body.optString("name", "file")
+                    else -> null to (body.optJSONObject("options")?.optString("label") ?: tool)
+                }
+                json(JSONObject().put("id", start(tool, uri, name, body.optJSONObject("options") ?: JSONObject())))
+            }
+            req.method == "GET" && path == "/apps" -> {
+                val now = System.currentTimeMillis()
+                val list = appsCache?.takeIf { now - it.first < 120_000 }?.second ?: kotlinx.coroutines.runBlocking { app.pluckRepository.loadAll() }.also { appsCache = now to it }
+                val q = req.query["q"].orEmpty().lowercase()
+                json(JSONArray().apply { list.filter { !it.isSystem && (q.isEmpty() || it.label.lowercase().contains(q) || it.packageName.contains(q)) }.sortedBy { it.label.lowercase() }.take(300).forEach { a ->
+                    put(JSONObject().put("pkg", a.packageName).put("label", a.label).put("version", a.versionName).put("bytes", a.apkBytes).put("split", a.apkPaths.size > 1))
+                } })
+            }
+            req.method == "GET" && path == "/appicon" -> {
+                val png = runCatching {
+                    val d = context.packageManager.getApplicationIcon(req.query["pkg"].orEmpty())
+                    val b = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
+                    d.setBounds(0, 0, 96, 96); d.draw(android.graphics.Canvas(b))
+                    java.io.ByteArrayOutputStream().also { b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+                }.getOrNull() ?: return deny("no icon")
+                out.write("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: ${png.size}\r\nCache-Control: max-age=86400\r\nConnection: close\r\n\r\n".toByteArray()); out.write(png); out.flush()
+            }
             req.method == "GET" && path == "/library" -> json(library())
             req.method == "GET" && path == "/library/file" -> {
                 val item = app.tools.flatMap { it.library.value }.firstOrNull { it.id == req.query["id"] && it.uri != null } ?: return deny("not found")

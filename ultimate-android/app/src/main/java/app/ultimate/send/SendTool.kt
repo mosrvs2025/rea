@@ -100,7 +100,8 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
     var front by remember { mutableStateOf(false) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) server.camera(true) }
     if (state.camera && state.running) CompanionCamera(server, front)
-    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { server.camera(false) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { server.camera(false); server.mic(false) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) server.mic(true) }
     state.playRequest?.let { request ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = server::dismissPlay,
@@ -172,12 +173,14 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
             item {
                 if (state.running) Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Live camera to your computer", fontWeight = FontWeight.Bold)
-                        Text("Local video preview, without audio. Camera access is controlled here and stops when you leave this screen.")
+                        Text("Live camera and microphone", fontWeight = FontWeight.Bold)
+                        Text("Watch and listen from your computer's browser. Both stay under your control here and stop when you leave Ultimate.")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button({ if (state.camera) server.camera(false) else cameraPermission.launch(android.Manifest.permission.CAMERA) }) { Text(if (state.camera) "Stop camera" else "Enable camera") }
+                            Button({ if (state.camera) server.camera(false) else cameraPermission.launch(android.Manifest.permission.CAMERA) }) { Text(if (state.camera) "Stop camera" else "Camera") }
                             if (state.camera) TextButton({ front = !front }) { Text("Flip") }
+                            androidx.compose.material3.FilledTonalButton({ if (state.mic) server.mic(false) else micPermission.launch(android.Manifest.permission.RECORD_AUDIO) }) { Text(if (state.mic) "Stop mic" else "Microphone") }
                         }
+                        if (state.mic) Text("● Live: anyone with your dashboard open can hear this phone.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }

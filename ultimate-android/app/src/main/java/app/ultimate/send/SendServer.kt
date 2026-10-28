@@ -83,7 +83,7 @@ object SendHttp {
  * needs the random code in its address.
  */
 class SendServer(private val context: Context) {
-    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null)
+    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null, val mic: Boolean = false)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
@@ -108,13 +108,20 @@ class SendServer(private val context: Context) {
         private set
     @Volatile private var cameraFrame: ByteArray? = null
     private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
+    val micStream = CompanionMic()
+    /** Live microphone to the computer; the phone asks for the permission before calling this. */
+    fun mic(enabled: Boolean) {
+        if (enabled && _state.value.running) micStream.start() else micStream.stop()
+        _state.update { it.copy(mic = enabled && _state.value.running) }
+    }
+
     fun camera(enabled: Boolean) { cameraFrame = null; _state.update { it.copy(camera = enabled) } }
     fun frame(bytes: ByteArray) { if (_state.value.camera) cameraFrame = bytes }
     fun dismissPlay() { _state.update { it.copy(playRequest = null) } }
     private fun status(): String {
         val app = context.applicationContext as app.ultimate.UltimateApp
         return org.json.JSONObject().apply {
-            put("device", android.os.Build.MODEL); put("camera", _state.value.camera)
+            put("device", android.os.Build.MODEL); put("camera", _state.value.camera); put("mic", _state.value.mic); put("micLevel", micStream.level.toDouble())
             put("files", org.json.JSONArray().apply { _state.value.offered.forEach { f -> put(org.json.JSONObject().put("id", f.id).put("name", f.name).put("bytes", f.bytes).put("mime", f.mime)) } })
             put("jobs", org.json.JSONArray().apply { app.work.sources.forEach { source -> val w = source.work.value
                 put(org.json.JSONObject().put("name", source.workTitle).put("active", w.active).put("title", if (w.active) w.title else w.doneTitle ?: "Ready").put("percent", w.percent ?: -1))
@@ -143,7 +150,7 @@ class SendServer(private val context: Context) {
     fun stop() {
         runCatching { socket?.close() }
         clients.forEach { runCatching { it.close() } }; clients.clear()
-        camera(false)
+        camera(false); mic(false)
         scope?.cancel(); scope = null; socket = null
         _state.update { it.copy(running = false, address = null) }
         _visitors.value = emptyList()
@@ -209,6 +216,13 @@ class SendServer(private val context: Context) {
             }
             rest.startsWith("/api/") -> api.handle(req, rest.removePrefix("/api"), input, out)
             req.method == "GET" && rest == "/status" -> respond(out, 200, "application/json", status().toByteArray())
+            req.method == "GET" && rest == "/mic" -> {
+                if (!_state.value.mic) return respond(out, 409, "text/plain", "Turn on the microphone on the phone first".toByteArray())
+                out.write("HTTP/1.1 200 OK\r\nContent-Type: audio/aac\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray()); out.flush()
+                client.soTimeout = 0
+                micStream.listen(out)
+                try { while (_state.value.running && _state.value.mic && !client.isClosed) Thread.sleep(250) } finally { micStream.unlisten(out) }
+            }
             req.method == "GET" && rest == "/camera" -> {
                 if (!_state.value.camera) return respond(out, 409, "text/plain", "Enable camera on the phone first".toByteArray())
                 out.write("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())

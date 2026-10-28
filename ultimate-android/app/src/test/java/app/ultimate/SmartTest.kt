@@ -139,3 +139,16 @@ class TodayTest {
         org.junit.Assert.assertEquals("A browser", h.browserLabel(null))
     }
 }
+
+class AdtsTest {
+    @org.junit.Test fun headerEncodesLengthRateAndChannels() {
+        val h = app.ultimate.send.Adts.header(100, 44100, 1)
+        org.junit.Assert.assertEquals(7, h.size)
+        org.junit.Assert.assertEquals(0xFF, h[0].toInt() and 0xFF)
+        org.junit.Assert.assertEquals(0xF1, h[1].toInt() and 0xFF)
+        org.junit.Assert.assertEquals(4, (h[2].toInt() shr 2) and 0xF) // 44.1 kHz index
+        val len = ((h[3].toInt() and 3) shl 11) or ((h[4].toInt() and 0xFF) shl 3) or ((h[5].toInt() and 0xFF) shr 5)
+        org.junit.Assert.assertEquals(107, len)
+        org.junit.Assert.assertEquals(1, ((h[2].toInt() and 1) shl 2) or ((h[3].toInt() and 0xFF) shr 6))
+    }
+}
