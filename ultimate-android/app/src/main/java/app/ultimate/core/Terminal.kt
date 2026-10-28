@@ -88,8 +88,11 @@ fun Terminal(lines: List<LogLine>, live: Boolean, modifier: Modifier = Modifier,
             IconButton({ copyText(context, "Log", lines.joinToString("\n") { format(it) }) }) {
                 Icon(Icons.Rounded.ContentCopy, "Copy log", Modifier.size(18.dp), tint = TerminalDim)
             }
-            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse" else "Expand", tint = TerminalDim)
+            IconButton(onClick = { expanded = !expanded }) {
+                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse log" else "Expand log", tint = TerminalDim)
+            }
         }
+        if (!expanded) return@Column
         if (lines.isEmpty()) {
             Text("waiting for output…", Modifier.padding(start = 14.dp, bottom = 14.dp), color = TerminalDim, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
             return@Column

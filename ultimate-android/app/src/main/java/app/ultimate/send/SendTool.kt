@@ -46,6 +46,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +97,22 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
     BackHandler(onBack = onExit)
     val state by server.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var front by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) server.camera(true) }
+    if (state.camera && state.running) CompanionCamera(server, front)
+    state.playRequest?.let { request ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = server::dismissPlay,
+            title = { Text("Play from your computer?") },
+            text = { Text(request.name + " has been saved to Downloads/Ultimate.") },
+            confirmButton = { TextButton({
+                server.dismissPlay()
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(android.net.Uri.parse(request.uri), request.mime).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                runCatching { context.startActivity(intent) }.onFailure { android.widget.Toast.makeText(context, "Saved to Downloads/Ultimate. Install a player to open this format.", android.widget.Toast.LENGTH_LONG).show() }
+            }) { Text("Play") } },
+            dismissButton = { TextButton(server::dismissPlay) { Text("Keep file") } },
+        )
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { server.offer(it) }
     LaunchedEffect(launch) { if (!launch.consumed) { launch.consumed = true; if (launch.uris.isNotEmpty()) { server.offer(launch.uris); server.start() } } }
     // The server lives only while this screen is open, so nothing listens on the network unnoticed.
@@ -122,6 +141,18 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
                             }
                         }
                         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+            item {
+                if (state.running) Card {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Live camera to your computer", fontWeight = FontWeight.Bold)
+                        Text("Local video preview, without audio. Camera access is controlled here and stops when you leave this screen.")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button({ if (state.camera) server.camera(false) else cameraPermission.launch(android.Manifest.permission.CAMERA) }) { Text(if (state.camera) "Stop camera" else "Enable camera") }
+                            if (state.camera) TextButton({ front = !front }) { Text("Flip") }
+                        }
                     }
                 }
             }

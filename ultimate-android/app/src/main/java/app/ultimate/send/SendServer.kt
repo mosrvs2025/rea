@@ -26,8 +26,10 @@ import java.net.Socket
 import java.net.URLDecoder
 import java.security.SecureRandom
 
-data class Offered(val uri: Uri, val name: String, val bytes: Long, val mime: String)
-data class Received(val name: String, val bytes: Long, val at: Long)
+data class Offered(val uri: Uri, val name: String, val bytes: Long, val mime: String) {
+    val id: String get() = java.security.MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+}
+data class Received(val name: String, val bytes: Long, val at: Long, val uri: String = "", val mime: String = "application/octet-stream")
 
 /** Pure pieces of the tiny web server, tested on their own. */
 object SendHttp {
@@ -63,13 +65,28 @@ object SendHttp {
  * needs the random code in its address.
  */
 class SendServer(private val context: Context) {
-    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null)
+    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
     private var scope: CoroutineScope? = null
     private var socket: ServerSocket? = null
     private var code = SendHttp.newCode()
+    @Volatile private var cameraFrame: ByteArray? = null
+    private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
+    fun camera(enabled: Boolean) { cameraFrame = null; _state.update { it.copy(camera = enabled) } }
+    fun frame(bytes: ByteArray) { if (_state.value.camera) cameraFrame = bytes }
+    fun dismissPlay() { _state.update { it.copy(playRequest = null) } }
+    private fun status(): String {
+        val app = context.applicationContext as app.ultimate.UltimateApp
+        return org.json.JSONObject().apply {
+            put("device", android.os.Build.MODEL); put("camera", _state.value.camera)
+            put("files", org.json.JSONArray().apply { _state.value.offered.forEach { f -> put(org.json.JSONObject().put("id", f.id).put("name", f.name).put("bytes", f.bytes).put("mime", f.mime)) } })
+            put("jobs", org.json.JSONArray().apply { app.work.sources.forEach { source -> val w = source.work.value
+                put(org.json.JSONObject().put("name", source.workTitle).put("active", w.active).put("title", if (w.active) w.title else w.doneTitle ?: "Ready").put("percent", w.percent ?: -1))
+            } })
+        }.toString()
+    }
 
     fun start() {
         if (_state.value.running) return
@@ -82,13 +99,16 @@ class SendServer(private val context: Context) {
         s.launch {
             while (isActive) {
                 val client = runCatching { server.accept() }.getOrNull() ?: break
-                launch { runCatching { client.use { handle(it) } } }
+                clients.add(client)
+                launch { try { runCatching { client.use { handle(it) } } } finally { clients.remove(client) } }
             }
         }
     }
 
     fun stop() {
         runCatching { socket?.close() }
+        clients.forEach { runCatching { it.close() } }; clients.clear()
+        camera(false)
         scope?.cancel(); scope = null; socket = null
         _state.update { it.copy(running = false, address = null) }
     }
@@ -112,30 +132,60 @@ class SendServer(private val context: Context) {
         val out = client.getOutputStream()
         val req = SendHttp.parseHead(readHead(input)) ?: return
         val prefix = "/$code"
-        if (!req.path.startsWith(prefix)) return respond(out, 404, "text/plain", "Not found".toByteArray())
+        if (req.path != prefix && !req.path.startsWith("$prefix/")) return respond(out, 404, "text/plain", "Not found".toByteArray())
         val rest = req.path.removePrefix(prefix)
         when {
-            req.method == "GET" && (rest == "" || rest == "/") -> respond(out, 200, "text/html; charset=utf-8", page().toByteArray())
-            req.method == "GET" && rest.startsWith("/f/") -> {
-                val f = _state.value.offered.getOrNull(rest.removePrefix("/f/").toIntOrNull() ?: -1) ?: return respond(out, 404, "text/plain", "Gone".toByteArray())
-                context.contentResolver.openInputStream(f.uri)?.use { src ->
-                    val head = "HTTP/1.1 200 OK\r\nContent-Type: ${f.mime}\r\n" + (if (f.bytes > 0) "Content-Length: ${f.bytes}\r\n" else "") +
-                        "Content-Disposition: attachment; filename*=UTF-8''${java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")}\r\nConnection: close\r\n\r\n"
-                    out.write(head.toByteArray()); src.copyTo(out); out.flush()
+            req.method == "GET" && (rest == "" || rest == "/") -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("companion.html").use { it.readBytes() })
+            req.method == "GET" && rest == "/status" -> respond(out, 200, "application/json", status().toByteArray())
+            req.method == "GET" && rest == "/camera" -> {
+                if (!_state.value.camera) return respond(out, 409, "text/plain", "Enable camera on the phone first".toByteArray())
+                out.write("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())
+                while (_state.value.running && _state.value.camera && !client.isClosed) {
+                    cameraFrame?.let { jpeg ->
+                        out.write("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.size}\r\n\r\n".toByteArray()); out.write(jpeg); out.write("\r\n".toByteArray()); out.flush()
+                    }
+                    Thread.sleep(125)
                 }
+            }
+            (req.method == "GET" || req.method == "HEAD") && rest.startsWith("/f/") -> {
+                val f = _state.value.offered.firstOrNull { it.id == rest.removePrefix("/f/") } ?: return respond(out, 404, "text/plain", "Gone".toByteArray())
+                val range = SendRange.parse(req.headers["range"], f.bytes)
+                if (range == null) return respond(out, 416, "text/plain", "Range not satisfiable".toByteArray())
+                context.contentResolver.openInputStream(f.uri)?.use { src ->
+                    val partial = req.headers["range"] != null && f.bytes > 0
+                    val disposition = if (req.query["download"] == "1") "attachment" else "inline"
+                    val length = if (f.bytes > 0) range.last - range.first + 1 else -1
+                    val head = "HTTP/1.1 ${if (partial) "206 Partial Content" else "200 OK"}\r\nContent-Type: ${f.mime}\r\n" +
+                        (if (length >= 0) "Content-Length: $length\r\nAccept-Ranges: bytes\r\n" else "") +
+                        (if (partial) "Content-Range: bytes ${range.first}-${range.last}/${f.bytes}\r\n" else "") +
+                        "Content-Disposition: $disposition; filename*=UTF-8''${java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+                    out.write(head.toByteArray())
+                    if (req.method != "HEAD") {
+                        var skip = range.first
+                        while (skip > 0) { val n = src.skip(skip); if (n > 0) skip -= n else { check(src.read() >= 0); skip-- } }
+                        if (length < 0) src.copyTo(out) else {
+                            var left = length; val buffer = ByteArray(64 * 1024)
+                            while (left > 0) { val n = src.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt()); if (n < 0) break; out.write(buffer, 0, n); left -= n }
+                        }
+                    }
+                    out.flush()
+                } ?: respond(out, 404, "text/plain", "File unavailable".toByteArray())
             }
             req.method == "PUT" && rest == "/upload" -> {
                 val name = SendHttp.safeName(req.query["name"] ?: "file")
                 val length = req.headers["content-length"]?.toLongOrNull() ?: return respond(out, 411, "text/plain", "Length required".toByteArray())
-                save(name, req.headers["content-type"] ?: "application/octet-stream", input, length)
-                _state.update { it.copy(received = listOf(Received(name, length, System.currentTimeMillis())) + it.received) }
+                if (length < 0) return respond(out, 400, "text/plain", "Invalid length".toByteArray())
+                val mime = req.headers["content-type"] ?: "application/octet-stream"
+                val uri = save(name, mime, input, length)
+                val received = Received(name, length, System.currentTimeMillis(), uri.toString(), mime)
+                _state.update { it.copy(received = (listOf(received) + it.received).take(100), playRequest = if (req.query["play"] == "1" && (mime.startsWith("audio/") || mime.startsWith("video/"))) received else it.playRequest) }
                 respond(out, 200, "text/plain", "OK".toByteArray())
             }
             else -> respond(out, 404, "text/plain", "Not found".toByteArray())
         }
     }
 
-    private fun save(name: String, mime: String, input: InputStream, length: Long) {
+    private fun save(name: String, mime: String, input: InputStream, length: Long): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name); put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, "Download/Ultimate"); put(MediaStore.Downloads.IS_PENDING, 1)
@@ -149,6 +199,7 @@ class SendServer(private val context: Context) {
                 check(left == 0L) { "upload cut short" }
             }
             resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            return uri
         } catch (e: Exception) { resolver.delete(uri, null, null); throw e }
     }
 
@@ -164,24 +215,6 @@ class SendServer(private val context: Context) {
     private fun respond(out: OutputStream, status: Int, type: String, body: ByteArray) {
         out.write("HTTP/1.1 $status OK\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())
         out.write(body); out.flush()
-    }
-
-    private fun page(): String {
-        val files = _state.value.offered.mapIndexed { i, f ->
-            "<a class=f href=\"/$code/f/$i\" download><b>${SendHttp.escape(f.name)}</b><span>${app.ultimate.core.formatBytes(f.bytes)}</span></a>"
-        }.joinToString("").ifEmpty { "<p class=m>Nothing offered yet. Pick files on the phone.</p>" }
-        return """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Ultimate</title>
-<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;background:#111;color:#eee}h1{font-size:24px}
-.f{display:flex;justify-content:space-between;padding:14px 16px;margin:8px 0;border-radius:14px;background:#222;color:#eee;text-decoration:none}.f span,.m{color:#999}
-#drop{border:2px dashed #555;border-radius:16px;padding:32px;text-align:center;margin-top:24px;cursor:pointer}#drop.on{border-color:#9b8cff;background:#1b1830}
-#log div{padding:6px 0;color:#9be59b}</style></head><body><h1>From your phone</h1>$files
-<h1>To your phone</h1><div id=drop>Drop files here or click to choose<input id=pick type=file multiple hidden></div><div id=log></div>
-<script>const d=document.getElementById('drop'),p=document.getElementById('pick'),log=document.getElementById('log');
-d.onclick=()=>p.click();p.onchange=()=>send(p.files);d.ondragover=e=>{e.preventDefault();d.classList.add('on')};d.ondragleave=()=>d.classList.remove('on');
-d.ondrop=e=>{e.preventDefault();d.classList.remove('on');send(e.dataTransfer.files)};
-async function send(files){for(const f of files){const r=document.createElement('div');r.textContent='Sending '+f.name+'…';log.prepend(r);
-const res=await fetch('/$code/upload?name='+encodeURIComponent(f.name),{method:'PUT',body:f,headers:{'Content-Type':f.type||'application/octet-stream'}});
-r.textContent=(res.ok?'✓ ':'✗ ')+f.name+(res.ok?' is on your phone in Downloads/Ultimate':' failed');}}</script></body></html>"""
     }
 
     private fun wifiAddress(): String? = runCatching {
