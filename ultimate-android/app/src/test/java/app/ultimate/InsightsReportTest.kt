@@ -1,0 +1,47 @@
+package app.ultimate
+
+import app.ultimate.insights.Crash
+import app.ultimate.insights.InsightsInput
+import app.ultimate.insights.InsightsReport
+import app.ultimate.insights.OtherApp
+import app.ultimate.insights.ToolUse
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class InsightsReportTest {
+    private val base = InsightsInput(
+        "1.15.0", "ultimateplus", "Samsung SM-F956U", "15 (SDK 35)", 1_760_000_000_000,
+        listOf(ToolUse("audio", "Video to audio", 12, 40, 1_760_000_000_000, 5, 1000), ToolUse("lan", "Network | scanner", 0, 0, 0, 0, 0)),
+        listOf(
+            OtherApp("CapCut", "com.lemon.lvoverseas", "Video", 95, 1_760_000_000_000, null),
+            OtherApp("Compress Video", "x.y", "Video", 3, 1, "Squeeze"),
+        ),
+        usageAccess = true, crashes = listOf(Crash(1_760_000_000_000, "1.14.0", "java.lang.IllegalStateException", "boom", listOf("AudioConverter.transcode:140"))),
+        notes = "A PDF tool please",
+    )
+
+    @Test fun containsEverySectionAndEscapesTables() {
+        val md = InsightsReport.markdown(base)
+        assertTrue(md.contains("| Video to audio | 12 | 40 |"))
+        assertTrue(md.contains("Network / scanner"))
+        assertTrue(md.contains("Never opened: Network | scanner."))
+        assertTrue(md.contains("A PDF tool please"))
+        assertTrue(md.contains("`AudioConverter.transcode:140`"))
+        assertTrue(md.contains("- Compress Video → Squeeze (3 min this week)"))
+        assertTrue(md.indexOf("| CapCut | Video | 95 |") > 0)
+    }
+
+    @Test fun appsLeftOutWhenNotIncluded() {
+        val md = InsightsReport.markdown(base.copy(apps = null, notes = ""))
+        assertFalse(md.contains("My other apps"))
+        assertFalse(md.contains("My notes"))
+        assertFalse(md.contains("CapCut"))
+    }
+
+    @Test fun unknownUsageIsSaidPlainly() {
+        val md = InsightsReport.markdown(base.copy(usageAccess = false, apps = listOf(OtherApp("Maps", "m", "Maps", null, null, null))))
+        assertTrue(md.contains("Usage access is off"))
+        assertTrue(md.contains("| Maps | Maps | ? | unknown |"))
+    }
+}

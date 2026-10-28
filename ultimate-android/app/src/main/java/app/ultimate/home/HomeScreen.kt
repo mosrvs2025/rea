@@ -1,5 +1,6 @@
 package app.ultimate.home
 
+import app.ultimate.insights.InsightsSheet
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -42,6 +43,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -77,6 +79,8 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         combine(app.work.sources.map { src -> src.work.map { src to it } }) { it.toList().filter { (_, w) -> w.active } }
     }.collectAsStateWithLifecycle(emptyList())
     val recent = all.sortedByDescending { it.createdAt }.take(3)
+    var showInsights by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (showInsights) InsightsSheet(app) { showInsights = false }
 
     // Two columns: every tool, the space-saved hero and the latest results fit on one screen. An odd last tool takes the full row.
     LazyVerticalGrid(
@@ -111,6 +115,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 LibraryRow(item, tool, onClick = { openItem(app, tool, item) })
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { ShapeCard { showInsights = true } }
     }
 }
 
@@ -203,4 +208,20 @@ private fun Hero(saved: Long, count: Int) {
 
 internal fun openItem(app: UltimateApp, tool: app.ultimate.core.Tool, item: app.ultimate.core.LibraryItem) {
     if (tool.opensOwnScreen(item)) app.shell.open(tool, ToolLaunch(openItemId = item.id)) else app.shell.showLibrary()
+}
+
+/** The way back to whoever builds Ultimate: a report of what is used and what is missing. */
+@Composable
+private fun ShapeCard(onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.secondaryContainer).clickable(onClick = onClick).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Help shape Ultimate", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text("Export a usage report to plan the next tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+    }
 }

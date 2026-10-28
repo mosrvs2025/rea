@@ -29,7 +29,8 @@ import app.ultimate.squeeze.engine.LibraryStore
  */
 class UltimateApp : Application() {
     val work: WorkHub by lazy { WorkHub(this) }
-    val shell: Shell by lazy { Shell(tools) }
+    val insights: app.ultimate.insights.InsightsStore by lazy { app.ultimate.insights.InsightsStore(this, BuildConfig.VERSION_NAME) }
+    val shell: Shell by lazy { Shell(tools, insights) }
 
     // Squeeze
     val capabilities by lazy { DeviceCodecs.detect() }
@@ -71,6 +72,7 @@ class UltimateApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        insights.installCrashCatcher()
         // Every manager must be registered before the first background job starts, so the one service watches them all.
         if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)

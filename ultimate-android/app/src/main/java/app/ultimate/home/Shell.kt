@@ -18,7 +18,7 @@ sealed interface Route {
 data class Incoming(val uris: List<Uri>, val candidates: List<Tool>)
 
 /** Where the user is: Home, the Library, or inside a tool. Lives for the whole process so a share never loses its place. */
-class Shell(private val tools: List<Tool>) {
+class Shell(private val tools: List<Tool>, private val insights: app.ultimate.insights.InsightsStore? = null) {
     private val _route = MutableStateFlow<Route>(Route.Home)
     val route: StateFlow<Route> = _route.asStateFlow()
     private val _incoming = MutableStateFlow<Incoming?>(null)
@@ -52,15 +52,18 @@ class Shell(private val tools: List<Tool>) {
     fun showActivity() = top(Route.Activity)
 
     private fun top(route: Route) {
+        insights?.left()
         lastTopLevel = route
         _route.value = route
     }
 
     fun open(tool: Tool, launch: ToolLaunch = ToolLaunch()) {
+        insights?.entered(tool.id)
         _route.value = Route.InTool(tool, launch)
     }
 
     fun exitTool() {
+        insights?.left()
         _route.value = lastTopLevel
     }
 

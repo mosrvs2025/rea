@@ -41,6 +41,8 @@ fun UltimateRoot(app: UltimateApp) {
     val route by shell.route.collectAsStateWithLifecycle()
     val incoming by shell.incoming.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { app.insights.pause() }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) { app.insights.resume() }
     val standalone = app.tools.size == 1
     val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
