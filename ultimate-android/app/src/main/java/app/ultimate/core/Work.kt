@@ -32,6 +32,8 @@ data class WorkSnapshot(
     val detail: String? = null,
     /** 0..100, or null when progress is unknown. */
     val percent: Int? = null,
+    /** The run ended without doing what it set out to do. */
+    val failed: Boolean = false,
     /** Set when work has just finished; shown as a notification when [active] flips to false. */
     val doneTitle: String? = null,
     val doneText: String? = null,
@@ -71,6 +73,7 @@ class WorkService : Service() {
     private var watcher: Job? = null
     private val hub get() = (application as UltimateApp).work
     private var previouslyActive: List<Boolean> = emptyList()
+    private val startedAt = HashMap<Int, Long>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -95,7 +98,11 @@ class WorkService : Service() {
     private fun onChange(snaps: List<WorkSnapshot>) {
         val nm = getSystemService(NotificationManager::class.java)
         snaps.forEachIndexed { i, s ->
-            if (previouslyActive.getOrNull(i) == true && !s.active && s.doneTitle != null) hub.sources.getOrNull(i)?.let { nm.notify(DONE_ID + i, done(s, it)) }
+            if (s.active && previouslyActive.getOrNull(i) != true) startedAt[i] = android.os.SystemClock.elapsedRealtime()
+            if (previouslyActive.getOrNull(i) == true && !s.active) hub.sources.getOrNull(i)?.let { src ->
+                startedAt.remove(i)?.let { t -> (application as UltimateApp).insights.job(src.workId, android.os.SystemClock.elapsedRealtime() - t, !s.failed) }
+                if (s.doneTitle != null) nm.notify(DONE_ID + i, done(s, src))
+            }
         }
         previouslyActive = snaps.map { it.active }
         if (snaps.any { it.active }) {

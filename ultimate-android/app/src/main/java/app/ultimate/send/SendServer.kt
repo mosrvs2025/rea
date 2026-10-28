@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import app.ultimate.insights.track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -122,6 +123,7 @@ class SendServer(private val context: Context) {
                     val head = "HTTP/1.1 200 OK\r\nContent-Type: ${f.mime}\r\n" + (if (f.bytes > 0) "Content-Length: ${f.bytes}\r\n" else "") +
                         "Content-Disposition: attachment; filename*=UTF-8''${java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")}\r\nConnection: close\r\n\r\n"
                     out.write(head.toByteArray()); src.copyTo(out); out.flush()
+                    context.track("send.download")
                 }
             }
             req.method == "PUT" && rest == "/upload" -> {
@@ -129,6 +131,7 @@ class SendServer(private val context: Context) {
                 val length = req.headers["content-length"]?.toLongOrNull() ?: return respond(out, 411, "text/plain", "Length required".toByteArray())
                 save(name, req.headers["content-type"] ?: "application/octet-stream", input, length)
                 _state.update { it.copy(received = listOf(Received(name, length, System.currentTimeMillis())) + it.received) }
+                context.track("send.upload")
                 respond(out, 200, "text/plain", "OK".toByteArray())
             }
             else -> respond(out, 404, "text/plain", "Not found".toByteArray())

@@ -5,7 +5,8 @@ import java.util.Date
 import java.util.Locale
 
 /** How one tool has been used on this phone. */
-data class ToolUse(val id: String, val title: String, val opens: Int, val minutes: Long, val lastAt: Long, val results: Int, val resultBytes: Long)
+data class ToolUse(val id: String, val title: String, val opens: Int, val minutes: Long, val lastAt: Long, val results: Int, val resultBytes: Long,
+    val quickVisits: Int = 0, val jobsOk: Int = 0, val jobsFailed: Int = 0, val jobMs: Long = 0)
 
 /** Another app on the phone, for spotting what Ultimate could absorb next. */
 data class OtherApp(val label: String, val packageName: String, val category: String, val minutes7d: Long?, val lastUsedAt: Long?, val coveredBy: String?)
@@ -26,6 +27,12 @@ data class InsightsInput(
     val notes: String,
     /** When Ultimate started counting tool use. */
     val trackingSince: Long = 0,
+    /** Feature uses inside tools, by name. */
+    val features: Map<String, Int> = emptyMap(),
+    val problems: List<String> = emptyList(),
+    val unmatched: List<String> = emptyList(),
+    /** Label to value: permissions, speech, codecs, screen, automations. */
+    val setup: List<Pair<String, String>> = emptyList(),
 )
 
 /** Turns what the phone knows about Ultimate's use into Markdown an AI (or a person) can plan the next version from. */
@@ -49,11 +56,14 @@ object InsightsReport {
             appendLine("Counting since ${day.format(Date(i.trackingSince))} ($days day${if (days == 1L) "" else "s"}). Results include work from before then.")
             appendLine()
         }
-        appendLine("| Tool | Opens | Minutes | Last used | Results |")
-        appendLine("|---|---:|---:|---|---:|")
+        appendLine("| Tool | Opens | Quick visits | Minutes | Last used | Results | Jobs ok/failed | Avg job |")
+        appendLine("|---|---:|---:|---:|---|---:|---|---:|")
         i.tools.sortedWith(compareByDescending<ToolUse> { it.minutes }.thenByDescending { it.opens }).forEach { t ->
-            appendLine("| ${cell(t.title)} | ${t.opens} | ${t.minutes} | ${if (t.lastAt > 0) day.format(Date(t.lastAt)) else "never"} | ${t.results} |")
+            val jobs = t.jobsOk + t.jobsFailed
+            appendLine("| ${cell(t.title)} | ${t.opens} | ${t.quickVisits} | ${t.minutes} | ${if (t.lastAt > 0) day.format(Date(t.lastAt)) else "never"} | ${t.results} | " +
+                (if (jobs == 0) "–" else "${t.jobsOk}/${t.jobsFailed}") + " | " + (if (jobs == 0) "–" else "${t.jobMs / jobs / 1000}s") + " |")
         }
+        appendLine("\nQuick visit = opened and left within ${app.ultimate.insights.InsightsStore.QUICK_MS / 1000} seconds.")
         val unused = i.tools.filter { it.opens == 0 }
         if (unused.isNotEmpty() && i.tools.any { it.opens > 0 }) appendLine("\nNever opened: ${unused.joinToString { it.title }}.")
         appendLine()
@@ -61,6 +71,28 @@ object InsightsReport {
             appendLine("## My notes")
             appendLine()
             appendLine(i.notes.trim())
+            appendLine()
+        }
+        if (i.features.isNotEmpty()) {
+            appendLine("## Features used")
+            appendLine()
+            i.features.entries.sortedByDescending { it.value }.take(40).forEach { (k, v) -> appendLine("- $k: $v") }
+            appendLine()
+        }
+        if (i.unmatched.isNotEmpty()) {
+            appendLine("## Searched for, found nothing")
+            appendLine()
+            i.unmatched.forEach { appendLine("- \"${cell(it)}\"") }
+            appendLine()
+        }
+        appendLine("## Problems shown")
+        appendLine()
+        if (i.problems.isEmpty()) appendLine("None recorded.") else i.problems.forEach { appendLine("- ${cell(it)}") }
+        appendLine()
+        if (i.setup.isNotEmpty()) {
+            appendLine("## Setup")
+            appendLine()
+            i.setup.forEach { (k, v) -> appendLine("- $k: $v") }
             appendLine()
         }
         appendLine("## Crashes")

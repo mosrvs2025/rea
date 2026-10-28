@@ -1,5 +1,8 @@
 package app.ultimate.studio
 
+import app.ultimate.insights.track
+import app.ultimate.insights.trackProblem
+
 import app.ultimate.R
 import android.content.Context
 import android.net.Uri
@@ -60,8 +63,9 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
                     edit { p -> p.copy(clips = p.clips.map { if (it.id == id) it.copy(captions = segments) else it }) }
                 }
                 status.value = "Captions added. Style them in Text."
+                context.track("studio.autocaptions")
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
-            } catch (e: Exception) { error.value = e.message ?: "Captions couldn't be made"
+            } catch (e: Exception) { error.value = e.message ?: "Captions couldn't be made"; context.trackProblem("Studio captions", error.value)
             } finally { captioning.value = null }
         }
     }

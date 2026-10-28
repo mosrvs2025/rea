@@ -23,13 +23,27 @@ class InsightsReportTest {
 
     @Test fun containsEverySectionAndEscapesTables() {
         val md = InsightsReport.markdown(base)
-        assertTrue(md.contains("| Video to audio | 12 | 40 |"))
+        assertTrue(md.contains("| Video to audio | 12 | 0 | 40 |"))
         assertTrue(md.contains("Network / scanner"))
         assertTrue(md.contains("Never opened: Network | scanner."))
         assertTrue(md.contains("A PDF tool please"))
         assertTrue(md.contains("`AudioConverter.transcode:140`"))
         assertTrue(md.contains("- Compress Video → Squeeze (3 min this week)"))
         assertTrue(md.indexOf("| CapCut | Video | 95 |") > 0)
+    }
+
+    @Test fun featuresProblemsSearchesAndSetupAreReported() {
+        val md = InsightsReport.markdown(base.copy(
+            tools = listOf(ToolUse("squeeze", "Squeeze", 3, 1, 0, 2, 0, quickVisits = 2, jobsOk = 3, jobsFailed = 1, jobMs = 40_000)),
+            features = mapOf("studio.autocaptions" to 4, "home.savings" to 1), problems = listOf("10-28 · Studio: no sound"),
+            unmatched = listOf("10-28 · scan a document"), setup = listOf("On-device speech" to "available"),
+        ))
+        assertTrue(md.contains("| Squeeze | 3 | 2 | 1 |"))
+        assertTrue(md.contains("| 3/1 | 10s |"))
+        assertTrue(md.indexOf("studio.autocaptions: 4") < md.indexOf("home.savings: 1"))
+        assertTrue(md.contains("\"10-28 · scan a document\""))
+        assertTrue(md.contains("- 10-28 · Studio: no sound"))
+        assertTrue(md.contains("- On-device speech: available"))
     }
 
     @Test fun appsLeftOutWhenNotIncluded() {

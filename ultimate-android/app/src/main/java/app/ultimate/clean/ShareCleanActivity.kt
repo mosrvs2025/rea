@@ -43,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import app.ultimate.core.UltimateTheme
+import app.ultimate.insights.track
+import app.ultimate.insights.trackProblem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -62,8 +64,8 @@ class ShareCleanActivity : ComponentActivity() {
                 var error by remember { mutableStateOf<String?>(null) }
                 LaunchedEffect(Unit) {
                     runCatching { withContext(Dispatchers.IO) { cleaner.reset(); uris.map { cleaner.clean(it, intent.type) } } }
-                        .onSuccess { result = it; share(it) }
-                        .onFailure { error = it.message ?: "This file couldn't be cleaned" }
+                        .onSuccess { result = it; share(it); track("shareclean.${if (it.any { c -> c.mime.startsWith("video/") }) "video" else "photo"}") }
+                        .onFailure { error = it.message ?: "This file couldn't be cleaned"; trackProblem("Share clean", error) }
                 }
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable { finish() }, contentAlignment = Alignment.BottomCenter) {
                     Column(

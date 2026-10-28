@@ -1,5 +1,6 @@
 package app.ultimate
 
+import kotlinx.coroutines.launch
 import android.app.Application
 import app.ultimate.studio.StudioManager
 import app.ultimate.studio.StudioTool
@@ -87,6 +88,12 @@ class UltimateApp : Application() {
         super.onCreate()
         insights.installCrashCatcher()
         insights.since
+        // Errors the tools show on screen go into the usage report too, so "it didn't work" comes with a reason.
+        val watch = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+        fun follow(tool: String, flow: kotlinx.coroutines.flow.Flow<String?>) = watch.launch { flow.collect { if (!it.isNullOrBlank()) insights.problem(tool, it) } }
+        if (BuildConfig.HAS_STUDIO) follow("Studio", studioManager.error)
+        if (BuildConfig.HAS_RECORDER) follow("Recorder", recorder.error)
+        if (BuildConfig.HAS_SEND) follow("Send to computer", kotlinx.coroutines.flow.flow { sendServer.state.collect { emit(it.error) } })
         // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
         automations.watchScreenRecordings()
         // Every manager must be registered before the first background job starts, so the one service watches them all.

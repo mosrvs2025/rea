@@ -97,7 +97,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Ultimate", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Hero(saved, all.size) { showSavings = true }
+                Hero(saved, all.size) { app.insights.count("home.savings"); showSavings = true }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
@@ -270,8 +270,12 @@ private fun AskBar(app: UltimateApp) {
     var query by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
     val ids = remember { app.tools.map { it.id }.toSet() }
     val results = remember(query) { Commands.available(Commands.search(query), ids, false) }
+    // A request that finds nothing, left for a moment, is worth knowing about: it names a missing tool.
+    LaunchedEffect(query, results.isEmpty()) {
+        if (results.isEmpty() && query.trim().length >= 4) { kotlinx.coroutines.delay(2500); app.insights.unmatched(query) }
+    }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        if (uris.isNotEmpty()) app.shell.offerShared(uris, app.contentResolver.getType(uris[0]))
+        if (uris.isNotEmpty()) { app.insights.count("home.openfile"); app.shell.offerShared(uris, app.contentResolver.getType(uris[0])) }
     }
     Column(Modifier.padding(top = 4.dp)) {
         androidx.compose.material3.OutlinedTextField(
@@ -290,7 +294,7 @@ private fun AskBar(app: UltimateApp) {
                     val tool = app.tools.firstOrNull { it.id == a.toolId } ?: return@forEach
                     Row(
                         Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .clickable { query = ""; app.shell.open(tool) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                            .clickable { app.insights.count("home.ask.${a.id}"); query = ""; app.shell.open(tool) }.padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(tool.icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)

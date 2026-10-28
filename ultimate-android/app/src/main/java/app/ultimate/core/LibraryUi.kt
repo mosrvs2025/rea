@@ -198,8 +198,8 @@ private fun TranscriptSection(uri: String) {
                 scope.launch {
                     progress = 0f; problem = null
                     runCatching { app.ultimate.speech.Transcriber(context).transcribe(Uri.parse(uri)) { progress = it } }
-                        .onSuccess { ultimate.transcripts.put(uri, app.ultimate.speech.Captions.transcript(it)) }
-                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = it.message }
+                        .onSuccess { ultimate.transcripts.put(uri, app.ultimate.speech.Captions.transcript(it)); ultimate.insights.count("library.transcribe") }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = it.message; ultimate.insights.problem("Transcribe", it.message ?: "failed") }
                     progress = null
                 }
             }) { Text("Transcribe what's said") }

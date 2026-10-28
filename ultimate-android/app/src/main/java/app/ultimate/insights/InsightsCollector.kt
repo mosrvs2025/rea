@@ -9,6 +9,8 @@ import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
 import app.ultimate.checkup.engine.Collector
 import app.ultimate.pluck.model.Replacements
+import app.ultimate.screentime.ScreenTime
+import app.ultimate.speech.Transcriber
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -20,7 +22,8 @@ object InsightsCollector {
         val stats = app.insights
         val tools = app.tools.map { t ->
             val lib = t.library.value
-            ToolUse(t.id, t.title, stats.opens(t.id), stats.minutes(t.id), stats.lastAt(t.id), lib.size, lib.sumOf { it.bytes })
+            val (ok, failed, ms) = stats.jobs(t.id)
+            ToolUse(t.id, t.title, stats.opens(t.id), stats.minutes(t.id), stats.lastAt(t.id), lib.size, lib.sumOf { it.bytes }, stats.quick(t.id), ok, failed, ms)
         }
         val usage = Collector(app).hasUsageAccess()
         InsightsInput(
@@ -29,7 +32,31 @@ object InsightsCollector {
             generatedAt = System.currentTimeMillis(), trackingSince = stats.since, tools = tools,
             apps = if (includeApps) otherApps(app, usage) else null, usageAccess = usage,
             crashes = stats.crashes(), notes = notes,
+            features = stats.events(), problems = stats.problems(), unmatched = stats.unmatchedSearches(), setup = setup(app, usage),
         )
+    }
+
+    /** What the phone and its settings allow, which explains many "it didn't work" reports. */
+    private fun setup(app: UltimateApp, usage: Boolean): List<Pair<String, String>> = buildList {
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        add("Notifications" to if (nm.areNotificationsEnabled()) "allowed" else "off")
+        add("Usage access" to if (usage) "allowed" else "off")
+        add("On-device speech" to (Transcriber(app).unavailableReason() ?: "available"))
+        val am = app.getSystemService(android.app.ActivityManager::class.java)
+        val mem = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        add("RAM" to String.format(java.util.Locale.US, "%.1f GB", mem.totalMem / 1e9))
+        val c = app.resources.configuration
+        add("Screen now" to "${c.screenWidthDp}×${c.screenHeightDp} dp" + if (c.smallestScreenWidthDp >= 600) " (unfolded)" else "")
+        val encoders = runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder && it.isHardwareAccelerated }
+                .flatMap { it.supportedTypes.toList() }.filter { it.startsWith("video/") }.distinct().joinToString { it.removePrefix("video/") }
+        }.getOrDefault("unknown")
+        add("Hardware video encoders" to encoders.ifEmpty { "none found" })
+        add("Weekly checkup" to if (app.automations.weeklyCheckup) "on" else "off")
+        add("Screen-recording watch" to if (app.automations.screenRecordings) "on" else "off")
+        add("Daily limits set" to "${ScreenTime(app).limits().size}")
+        add("Custom recipes" to "${app.recipes.custom.value.size}")
+        add("Transcripts" to "${app.transcripts.all.value.size}")
     }
 
     private fun otherApps(context: Context, usage: Boolean): List<OtherApp> {

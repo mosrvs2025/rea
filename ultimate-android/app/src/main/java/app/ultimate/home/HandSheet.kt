@@ -89,6 +89,7 @@ fun HandSheet(app: UltimateApp, pending: Incoming) {
                     Modifier.fillMaxWidth().appear(a.id, seen, i).pressScale(0.97f).clip(RoundedCornerShape(18.dp)).background(if (i == 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)
                         .clickable {
                             shell.dismissIncoming()
+                            app.insights.count("hand.$kind.${a.id}")
                             if (a.shareClean) openShareClean(context, pending.uris, pending.mime) else tool?.let { shell.open(it, ToolLaunch(pending.uris)) }
                         }.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -111,7 +112,7 @@ fun HandSheet(app: UltimateApp, pending: Incoming) {
                     items(recipes) { r ->
                         Column(
                             Modifier.pressScale(0.96f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.secondaryContainer)
-                                .clickable { shell.dismissIncoming(); app.recipes.run(r, pending.uris); app.tools.firstOrNull { it.id == "recipes" }?.let(shell::open) }
+                                .clickable { app.insights.count("hand.recipe.${r.id}"); shell.dismissIncoming(); app.recipes.run(r, pending.uris); app.tools.firstOrNull { it.id == "recipes" }?.let(shell::open) }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                         ) {
                             Text(r.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)

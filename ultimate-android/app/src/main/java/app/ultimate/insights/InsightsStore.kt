@@ -28,6 +28,8 @@ class InsightsStore(context: Context, private val version: String) {
         current = null
         val ms = (SystemClock.elapsedRealtime() - startedAt).coerceIn(0, 6 * 3_600_000L)
         prefs.edit().putLong("ms.$id", prefs.getLong("ms.$id", 0) + ms).apply()
+        // Opened and left within seconds: a wrong turn, or the tool did not offer what was wanted.
+        if (ms < QUICK_MS && paused == null) prefs.edit().putInt("quick.$id", prefs.getInt("quick.$id", 0) + 1).apply()
     }
 
     private var paused: String? = null
@@ -43,6 +45,32 @@ class InsightsStore(context: Context, private val version: String) {
     fun minutes(id: String) = (prefs.getLong("ms.$id", 0) + if (id == current) SystemClock.elapsedRealtime() - startedAt else 0) / 60_000
     fun lastAt(id: String) = prefs.getLong("last.$id", 0)
 
+    fun quick(id: String) = prefs.getInt("quick.$id", 0)
+
+    /** Counts a use of a feature inside a tool, e.g. "studio.autocaptions". */
+    fun count(event: String) = prefs.edit().putInt("ev.$event", prefs.getInt("ev.$event", 0) + 1).apply()
+    fun events(): Map<String, Int> = prefs.all.filterKeys { it.startsWith("ev.") }.mapKeys { it.key.removePrefix("ev.") }.mapValues { (it.value as? Int) ?: 0 }
+
+    /** A finished background job: whether it worked and how long it took. */
+    fun job(toolId: String, ms: Long, ok: Boolean) = prefs.edit()
+        .putInt("job.${if (ok) "ok" else "fail"}.$toolId", prefs.getInt("job.${if (ok) "ok" else "fail"}.$toolId", 0) + 1)
+        .putLong("job.ms.$toolId", prefs.getLong("job.ms.$toolId", 0) + ms).apply()
+    fun jobs(id: String): Triple<Int, Int, Long> = Triple(prefs.getInt("job.ok.$id", 0), prefs.getInt("job.fail.$id", 0), prefs.getLong("job.ms.$id", 0))
+
+    /** A problem the user was shown (not a crash), kept as the last few. */
+    fun problem(tool: String, message: String) = push("problems", "$tool: ${message.take(160)}")
+    fun problems() = list("problems")
+
+    /** Something typed into Home's bar that matched nothing: the clearest sign of a missing tool. */
+    fun unmatched(query: String) = push("unmatched", query.trim().take(80))
+    fun unmatchedSearches() = list("unmatched")
+
+    private fun push(key: String, value: String) {
+        val now = list(key).filterNot { it.substringAfter(" · ") == value } + "${java.text.SimpleDateFormat("MM-dd", java.util.Locale.US).format(java.util.Date())} · $value"
+        prefs.edit().putString(key, JSONArray(now.takeLast(15)).toString()).apply()
+    }
+    private fun list(key: String): List<String> = runCatching { JSONArray(prefs.getString(key, "[]")).let { a -> List(a.length()) { a.getString(it) } } }.getOrDefault(emptyList())
+
     fun crashes(): List<Crash> = runCatching {
         val a = JSONArray(crashFile.readText())
         List(a.length()) { a.getJSONObject(it) }.map { o ->
@@ -53,6 +81,8 @@ class InsightsStore(context: Context, private val version: String) {
     fun clearCrashes() { crashFile.delete() }
 
     /** Keeps the last few crashes, with only Ultimate's own stack frames, then lets Android handle the crash as usual. */
+    companion object { const val QUICK_MS = 8_000L }
+
     fun installCrashCatcher() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->
@@ -68,3 +98,9 @@ class InsightsStore(context: Context, private val version: String) {
         }
     }
 }
+
+/** Counts a feature use from anywhere with a context; a no-op if the app object is not Ultimate's. */
+fun android.content.Context.track(event: String) { (applicationContext as? app.ultimate.UltimateApp)?.insights?.count(event) }
+
+/** Records a problem the user saw, for the usage report. */
+fun android.content.Context.trackProblem(tool: String, message: String?) { if (!message.isNullOrBlank()) (applicationContext as? app.ultimate.UltimateApp)?.insights?.problem(tool, message) }

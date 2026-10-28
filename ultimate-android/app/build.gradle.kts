@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.18.0"
+        versionCode = 15
+        versionName = "1.18.1"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.

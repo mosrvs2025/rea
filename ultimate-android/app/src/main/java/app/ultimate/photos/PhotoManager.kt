@@ -91,6 +91,7 @@ class PhotoManager(private val context: Context, private val hub: WorkHub) : Wor
                 val saved = made.sumOf { (it.originalBytes - it.bytes).coerceAtLeast(0) }
                 _run.value = Run(total = photos.size, done = made.size, results = made, failed = failed)
                 _work.value = WorkSnapshot(
+                    failed = made.isEmpty(),
                     doneTitle = if (made.size == 1) "${made[0].name} is ready" else "${made.size} photos ready",
                     doneText = (if (saved > 0) "${formatBytes(saved)} smaller · " else "") + "in Pictures/Ultimate, location removed" + if (failed > 0) " · $failed failed" else "",
                 )

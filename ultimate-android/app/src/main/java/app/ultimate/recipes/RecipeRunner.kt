@@ -65,6 +65,7 @@ class RecipeRunner(private val context: Context) {
 
     fun run(recipe: Recipe, uris: List<Uri>) {
         if (_state.value is State.Running || uris.isEmpty()) return
+        app.insights.count("recipe.${if (recipe.builtIn) recipe.id else "custom"}")
         job = scope.launch {
             val lines = mutableListOf<String>()
             uris.forEachIndexed { f, start ->
@@ -72,7 +73,7 @@ class RecipeRunner(private val context: Context) {
                 for ((i, step) in recipe.steps.withIndex()) {
                     _state.value = State.Running(recipe, f, uris.size, i)
                     val result = runCatching { perform(step, current) }
-                    result.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; lines += "${step.label}: ${it.message ?: "failed"}" }
+                    result.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; lines += "${step.label}: ${it.message ?: "failed"}"; app.insights.problem("Recipe ${recipe.name}", "${step.label}: ${it.message}") }
                     val (next, line) = result.getOrNull() ?: break
                     lines += line
                     if (next != null) current = next

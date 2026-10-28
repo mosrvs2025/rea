@@ -67,7 +67,7 @@ class CheckupManager(private val app: UltimateApp) : WorkSource {
                 doneTitle = "Checkup: ${s.scan.score}/100 · ${Checkup.verdict(s.scan.score).substringBefore(',')}",
                 doneText = s.scan.findings.count { it.severity == Severity.Critical }.let { c -> if (c > 0) "$c thing${if (c == 1) "" else "s"} need attention. Tap to see." else "Nothing urgent. Tap for the details." },
             )
-            is State.Failed -> WorkSnapshot(doneTitle = "Checkup couldn't finish", doneText = s.message)
+            is State.Failed -> WorkSnapshot(failed = true, doneTitle = "Checkup couldn't finish", doneText = s.message)
             State.Idle -> WorkSnapshot()
         }
     }.stateIn(scope, SharingStarted.Eagerly, WorkSnapshot())
