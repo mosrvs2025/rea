@@ -79,6 +79,8 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
+            if (BuildConfig.HAS_FILES) add(app.ultimate.files.FilesTool(this@UltimateApp))
+            if (BuildConfig.HAS_FILES) add(app.ultimate.files.CleanupTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }

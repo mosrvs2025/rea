@@ -41,6 +41,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "true")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "true")
+            buildConfigField("boolean", "HAS_FILES", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -62,6 +63,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "true")
             buildConfigField("boolean", "HAS_SEND", "true")
             buildConfigField("boolean", "HAS_SCREENTIME", "true")
+            buildConfigField("boolean", "HAS_FILES", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -82,6 +84,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "false")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
+            buildConfigField("boolean", "HAS_FILES", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -102,6 +105,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "false")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
+            buildConfigField("boolean", "HAS_FILES", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -122,6 +126,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "false")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
+            buildConfigField("boolean", "HAS_FILES", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -142,6 +147,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "false")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
+            buildConfigField("boolean", "HAS_FILES", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -162,6 +168,7 @@ android {
             buildConfigField("boolean", "HAS_PROMPTER", "false")
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
+            buildConfigField("boolean", "HAS_FILES", "false")
         }
     }
 
@@ -180,10 +187,12 @@ android {
 
     buildTypes {
         release {
-            // Companion previews keep readable crash stacks and avoid the slow R8 pass.
-            isMinifyEnabled = providers.gradleProperty("companionBuild").orNull != "true"
-            isShrinkResources = providers.gradleProperty("companionBuild").orNull != "true"
+            // Shrinking stays on for every build: without it the APK carries every icon and library class (~53 MB instead of ~7).
+            // Companion previews keep readable crash stacks by skipping only the renaming step.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (providers.gradleProperty("companionBuild").orNull == "true") proguardFiles("proguard-companion.pro")
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }

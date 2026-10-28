@@ -2,4 +2,6 @@
 <paths>
     <!-- Cleaned copies made for Share clean; deleted on the next run. -->
     <cache-path name="clean" path="clean/" />
+    <!-- Files: opening and sharing anything on shared storage (needs all-files access, Ultimate editions only). -->
+    <external-path name="storage" path="." />
 </paths>
