@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.11.0"
+        versionCode = 8
+        versionName = "1.12.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -34,6 +34,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "true")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -49,6 +50,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "true")
             buildConfigField("boolean", "HAS_AI", "true")
             buildConfigField("boolean", "HAS_NETWORK", "true")
+            buildConfigField("boolean", "HAS_SENSORS", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -63,6 +65,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "false")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -77,6 +80,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "false")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -91,6 +95,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "false")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -105,6 +110,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "false")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -119,6 +125,7 @@ android {
             buildConfigField("boolean", "HAS_CHECKUP", "false")
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
+            buildConfigField("boolean", "HAS_SENSORS", "false")
         }
     }
 

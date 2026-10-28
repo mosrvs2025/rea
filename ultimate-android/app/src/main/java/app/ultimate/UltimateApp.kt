@@ -65,6 +65,7 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
+            if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }
     }
 

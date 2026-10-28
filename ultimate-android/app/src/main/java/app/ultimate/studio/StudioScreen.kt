@@ -907,6 +907,7 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
                 TextButton({ details = !details }) { Text(if (details) "Hide render log" else "Render log") }
                 if (details) Terminal(log, work.active, startExpanded = true)
             }
+            exports.firstOrNull()?.let { latest -> item { app.ultimate.core.SendTo(Uri.parse(latest.uri), "video/mp4", "studio", onSent = onDismiss) } }
             if (exports.isNotEmpty()) item { Text("Your videos", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold) }
             items(exports, key = { it.id }) { e ->
                 ListItem(

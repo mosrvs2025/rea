@@ -12,8 +12,8 @@ sealed interface AiResult {
 
 /** Asks an AI about a checkup report with the user's own key. Only network-enabled editions have one. */
 interface AiAssistant {
-    val models: List<AiModel>
-    suspend fun ask(apiKey: String, model: String, report: String, question: String): AiResult
+    val providers: List<Provider> get() = Providers.all
+    suspend fun ask(provider: Provider, apiKey: String, model: String, report: String, question: String): AiResult
 }
 
 object Ai {

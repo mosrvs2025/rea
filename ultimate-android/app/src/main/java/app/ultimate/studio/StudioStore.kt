@@ -81,8 +81,9 @@ class StudioStore(private val context: Context) {
             StudioMusic(uri.toString(), name(uri), ms)
         } finally { r.release() }
     }
+    /** Keeps access across restarts where Android allows it; files handed over by other tools or apps may only grant it for now. */
     private fun retain(uri: Uri) {
-        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
     private fun name(uri: Uri): String = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
         if (it.moveToFirst()) it.getString(0) else null

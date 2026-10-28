@@ -59,3 +59,30 @@ class ClaudeApiTest {
         assertTrue((ClaudeApi.parse(200, "not json", "m") as AiResult.Failed).message.contains("could not read"))
     }
 }
+
+class ProvidersTest {
+    @Test fun geminiRequestAndReply() {
+        val b = JSONObject(app.ultimate.checkup.ai.Gemini.body("gemini-2.5-flash", "R", "Q"))
+        assertEquals("Q\n\n---\n\nR", b.getJSONArray("contents").getJSONObject(0).getJSONArray("parts").getJSONObject(0).getString("text"))
+        assertTrue(app.ultimate.checkup.ai.Gemini.url("gemini-2.5-flash").endsWith("/models/gemini-2.5-flash:generateContent"))
+        assertEquals("AIzaX", app.ultimate.checkup.ai.Gemini.headers("AIzaX", "m")["x-goog-api-key"])
+        val ok = app.ultimate.checkup.ai.Gemini.parse(200, """{"candidates":[{"content":{"parts":[{"text":"Fix "},{"text":"lock."}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":3}}""", "m") as AiResult.Answer
+        assertEquals("Fix lock.", ok.text); assertEquals(9, ok.inputTokens)
+        assertTrue(app.ultimate.checkup.ai.Gemini.parse(200, """{"candidates":[{"finishReason":"SAFETY"}]}""", "m") is AiResult.Refused)
+        assertTrue((app.ultimate.checkup.ai.Gemini.parse(400, """{"error":{"code":400,"message":"API key not valid"}}""", "m") as AiResult.Failed).message.contains("API key not valid"))
+    }
+
+    @Test fun openAiAndGrokShareTheChatFormat() {
+        listOf(app.ultimate.checkup.ai.OpenAi, app.ultimate.checkup.ai.Xai).forEach { p ->
+            val b = JSONObject(p.body("m1", "R", "Q"))
+            assertEquals("m1", b.getString("model"))
+            assertEquals("system", b.getJSONArray("messages").getJSONObject(0).getString("role"))
+            assertEquals("Bearer k", p.headers("k", "m")["authorization"])
+            val ok = p.parse(200, """{"model":"m1","choices":[{"message":{"content":"Hi","refusal":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}""", "m1") as AiResult.Answer
+            assertEquals("Hi", ok.text)
+            assertTrue(p.parse(200, """{"choices":[{"message":{"content":null,"refusal":"No."},"finish_reason":"stop"}]}""", "m") is AiResult.Refused)
+            assertTrue((p.parse(404, """{"error":{"message":"model not found"}}""", "nope") as AiResult.Failed).message.contains("no model called"))
+        }
+        assertTrue(app.ultimate.checkup.ai.Xai.url("x").startsWith("https://api.x.ai/"))
+    }
+}

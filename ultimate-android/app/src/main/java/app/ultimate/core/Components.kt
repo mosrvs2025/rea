@@ -161,7 +161,14 @@ fun rememberNotificationConsent(): (action: () -> Unit) -> Unit {
 }
 
 /** Shortcuts every tool screen can show. In a single-tool build there is no Home, so the tool's back arrow is hidden. */
-data class ShellNav(val standalone: Boolean, val openLibrary: () -> Unit, val openActivity: () -> Unit)
+data class ShellNav(
+    val standalone: Boolean,
+    val openLibrary: () -> Unit,
+    val openActivity: () -> Unit,
+    /** Every tool in this edition, so results can be handed from one tool to another. */
+    val tools: List<Tool> = emptyList(),
+    val send: (Tool, List<android.net.Uri>) -> Unit = { _, _ -> },
+)
 
 val LocalShellNav = androidx.compose.runtime.staticCompositionLocalOf<ShellNav?> { null }
 

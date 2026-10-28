@@ -11,7 +11,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** Keeps the user's API key encrypted with a key that never leaves the phone's Keystore. */
-class KeyVault(context: Context) {
+/** One vault per provider; Claude keeps the original slot so a key saved before is still found. */
+class KeyVault(context: Context, provider: String = "anthropic") {
+    private val KEY = if (provider == "anthropic") "anthropicKey" else "${provider}Key"
     private val prefs = context.getSharedPreferences("ai", Context.MODE_PRIVATE)
 
     fun load(): String? = runCatching {
@@ -39,7 +41,6 @@ class KeyVault(context: Context) {
     }
 
     private companion object {
-        const val KEY = "anthropicKey"
         const val ALIAS = "ultimate-ai-key"
         const val TRANSFORM = "AES/GCM/NoPadding"
     }

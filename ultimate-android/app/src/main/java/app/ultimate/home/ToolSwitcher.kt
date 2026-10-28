@@ -82,6 +82,10 @@ private object BubblePlace {
 @Composable
 fun ToolSwitcher(app: UltimateApp, current: Tool) {
     var open by remember { mutableStateOf(false) }
+    // After a moment of rest the bubble tucks half off the edge so it does not cover content; touching it brings it back.
+    var tucked by remember { mutableStateOf(false) }
+    var touched by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(touched, open) { tucked = false; if (!open) { kotlinx.coroutines.delay(2500); tucked = true } }
     val haptics = LocalHapticFeedback.current
     val running by remember { combine(app.work.sources.map { s -> s.work.map { s.workId to it.active } }) { it.filter { (_, a) -> a }.map { it.first }.toSet() } }
         .collectAsStateWithLifecycle(emptySet())
@@ -110,13 +114,16 @@ fun ToolSwitcher(app: UltimateApp, current: Tool) {
         }
 
         if (!open) {
-            val pressed by animateFloatAsState(1f, label = "bubble")
+            val pressed by animateFloatAsState(if (tucked) 0.55f else 1f, label = "bubble")
+            val tuck by animateFloatAsState(if (tucked) (if (BubblePlace.right) sizePx * 0.55f else -sizePx * 0.55f) else 0f, label = "tuck")
             Surface(
                 shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, shadowElevation = 8.dp,
-                modifier = Modifier.offset { IntOffset(x.value.roundToInt(), y.value.roundToInt()) }.size(size).graphicsLayer { alpha = 0.92f * pressed }
+                modifier = Modifier.offset { IntOffset((x.value + tuck).roundToInt(), y.value.roundToInt()) }.size(size).graphicsLayer { alpha = 0.92f * pressed }
                     .pointerInput(w, h) {
                         detectDragGestures(
+                            onDragStart = { touched++ },
                             onDragEnd = {
+                                touched++
                                 val right = x.value + sizePx / 2 > w / 2
                                 BubblePlace.right = right
                                 BubblePlace.heightFraction = y.value / h

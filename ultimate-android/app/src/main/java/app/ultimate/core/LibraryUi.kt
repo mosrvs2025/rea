@@ -107,6 +107,7 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            item.uri?.let { SendTo(Uri.parse(it), item.mimeType, tool.id, onSent = onDismiss) }
             if (item.mimeType.startsWith("audio/") && item.uri != null) {
                 AudioPlayerBar(Uri.parse(item.uri), (item.thumb as? Thumb.Waveform)?.peaks.orEmpty())
             }

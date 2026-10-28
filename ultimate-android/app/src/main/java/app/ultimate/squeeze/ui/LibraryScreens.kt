@@ -135,6 +135,7 @@ fun DetailScreen(
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { CompareBlock(entry, beforeFile, afterFile, clipFile, Modifier.fillMaxWidth()) }
             item { SavingsHero(entry) }
+            item { app.ultimate.core.SendTo(uri, "video/mp4", "squeeze") }
             item { StatsTable(entry) }
             item { EncodeStats(entry) }
         }

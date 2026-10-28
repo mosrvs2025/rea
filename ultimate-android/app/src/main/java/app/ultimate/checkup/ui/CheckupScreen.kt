@@ -107,6 +107,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.checkup.ai.Ai
 import app.ultimate.checkup.ai.AiResult
 import app.ultimate.checkup.ai.KeyVault
+import app.ultimate.checkup.ai.Providers
 import app.ultimate.checkup.engine.CheckupManager
 import app.ultimate.checkup.model.Access
 import app.ultimate.checkup.model.AppFacts
@@ -524,17 +525,21 @@ private fun ShareSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
 private fun AskAiSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
     val assistant = Ai.assistant ?: return
     val context = LocalContext.current
-    val vault = remember { KeyVault(context) }
+    val prefs = remember { context.getSharedPreferences("ai", Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
-    var key by remember { mutableStateOf(vault.load()) }
-    var keyDraft by remember { mutableStateOf("") }
-    var model by rememberSaveable { mutableStateOf(assistant.models.first().id) }
+    var providerId by rememberSaveable { mutableStateOf(prefs.getString("provider", "anthropic")!!) }
+    val provider = Providers.byId(providerId)
+    val vault = remember(providerId) { KeyVault(context, providerId) }
+    var key by remember(providerId) { mutableStateOf(vault.load()) }
+    var keyDraft by remember(providerId) { mutableStateOf("") }
+    var model by remember(providerId) { mutableStateOf(prefs.getString("model.$providerId", null) ?: provider.models.first().id) }
     var question by rememberSaveable { mutableStateOf(Report.PROMPT) }
     var includeApps by rememberSaveable { mutableStateOf(true) }
     var preview by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<AiResult?>(null) }
     val report = remember(scan.at, includeApps) { Report.markdown(scan, ReportOptions(includeApps), own) }
+    fun pickModel(m: String) { model = m; prefs.edit().putString("model.$providerId", m).apply() }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -542,20 +547,28 @@ private fun AskAiSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Ask AI about this phone", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                assistant.providers.forEach { p ->
+                    val saved = KeyVault(context, p.id).load() != null
+                    FilterChip(providerId == p.id, { providerId = p.id; result = null; prefs.edit().putString("provider", p.id).apply() },
+                        { Text(p.label + if (saved) " ✓" else "") })
+                }
+            }
             if (key == null) {
                 Text(
-                    "Uses your own Anthropic API key, so you pay Anthropic per question and nobody else is involved. The key is stored encrypted on this phone. " +
-                        "Get one at console.anthropic.com.",
+                    "Uses your own ${provider.label} key: you pay ${provider.label} directly (Gemini has a free tier), and nobody else is involved. " +
+                        "The key is stored encrypted on this phone. Get one at ${provider.keyUrl}.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedTextField(keyDraft, { keyDraft = it.trim() }, Modifier.fillMaxWidth(), label = { Text("API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                Button({ vault.save(keyDraft); key = keyDraft; keyDraft = "" }, enabled = keyDraft.startsWith("sk-ant-")) { Text("Save key") }
-                if (keyDraft.isNotEmpty() && !keyDraft.startsWith("sk-ant-")) Text("Anthropic keys start with sk-ant-", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                OutlinedTextField(keyDraft, { keyDraft = it.trim() }, Modifier.fillMaxWidth(), label = { Text("${provider.label} API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                Button({ vault.save(keyDraft); key = keyDraft; keyDraft = "" }, enabled = keyDraft.length >= 20) { Text("Save key") }
+                if (keyDraft.isNotEmpty() && !keyDraft.startsWith(provider.keyPrefix)) Text("${provider.label} keys usually start with ${provider.keyPrefix}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
                 return@Column
             }
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                assistant.models.forEach { m -> FilterChip(model == m.id, { model = m.id }, { Text("${m.label} · ${m.blurb}") }) }
+                provider.models.forEach { m -> FilterChip(model == m.id, { pickModel(m.id) }, { Text("${m.label} · ${m.blurb}") }) }
             }
+            OutlinedTextField(model, { pickModel(it.trim()) }, Modifier.fillMaxWidth(), label = { Text("Model name (edit to use a newer one)") }, singleLine = true)
             OutlinedTextField(question, { question = it }, Modifier.fillMaxWidth(), label = { Text("Your question") }, minLines = 2, maxLines = 5)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("What should I fix first?", "Which apps should I uninstall?", "Is anything suspicious?", "Explain my permissions").forEach { q ->
@@ -566,33 +579,28 @@ private fun AskAiSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
                 Text("Include the app list", Modifier.weight(1f))
                 Switch(includeApps, { includeApps = it })
             }
-            TextButton({ preview = !preview }) { Text(if (preview) "Hide what will be sent" else "See exactly what will be sent (≈ ${report.length / 4} tokens)") }
+            TextButton({ preview = !preview }) { Text(if (preview) "Hide what will be sent" else "See exactly what will be sent to ${provider.label} (≈ ${report.length / 4} tokens)") }
             if (preview) Box(Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState()).padding(12.dp)) {
                 SelectionContainer { Text("$question\n\n---\n\n$report", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
             }
             Button(
                 {
                     busy = true; result = null
-                    scope.launch {
-                        result = assistant.ask(key!!, model, report, question)
-                        busy = false
-                    }
+                    scope.launch { result = assistant.ask(provider, key!!, model, report, question); busy = false }
                 },
-                Modifier.fillMaxWidth().height(52.dp), enabled = !busy && question.isNotBlank(), shape = RoundedCornerShape(16.dp),
+                Modifier.fillMaxWidth().height(52.dp), enabled = !busy && question.isNotBlank() && model.isNotBlank(), shape = RoundedCornerShape(16.dp),
             ) {
                 if (busy) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(10.dp)); Text("Thinking…") }
-                else { Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Ask") }
+                else { Icon(Icons.Rounded.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Ask ${provider.label}") }
             }
             when (val r = result) {
-                is AiResult.Answer -> {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(16.dp)) {
-                        Column(Modifier.padding(16.dp)) {
-                            SelectionContainer { Text(r.text, style = MaterialTheme.typography.bodyMedium) }
-                            Spacer(Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("${r.model} · ${r.inputTokens} in / ${r.outputTokens} out tokens", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                IconButton({ copyText(context, "AI answer", r.text) }) { Icon(Icons.Rounded.ContentCopy, "Copy answer") }
-                            }
+                is AiResult.Answer -> Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        SelectionContainer { Text(r.text, style = MaterialTheme.typography.bodyMedium) }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${r.model} · ${r.inputTokens} in / ${r.outputTokens} out tokens", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            IconButton({ copyText(context, "AI answer", r.text) }) { Icon(Icons.Rounded.ContentCopy, "Copy answer") }
                         }
                     }
                 }
@@ -603,7 +611,7 @@ private fun AskAiSheet(scan: Scan, own: Set<String>, onDismiss: () -> Unit) {
                 }
                 null -> Unit
             }
-            TextButton({ vault.forget(); key = null; result = null }) { Text("Forget my API key") }
+            TextButton({ vault.forget(); key = null; result = null }) { Text("Forget my ${provider.label} key") }
         }
     }
 }

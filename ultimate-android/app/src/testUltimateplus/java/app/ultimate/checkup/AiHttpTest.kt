@@ -1,7 +1,9 @@
 package app.ultimate.checkup
 
 import app.ultimate.checkup.ai.AiResult
-import app.ultimate.checkup.ai.ClaudeAssistant
+import app.ultimate.checkup.ai.AiHttp
+import app.ultimate.checkup.ai.Anthropic
+import app.ultimate.checkup.ai.Gemini
 import java.net.ServerSocket
 import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
@@ -12,7 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Sends a real HTTP request to a local stand-in for the API and checks what went over the wire and what came back. */
-class ClaudeAssistantTest {
+class AiHttpTest {
     private val server = ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))
     @Volatile private var seenHeaders: Map<String, String> = emptyMap()
     @Volatile private var seenBody = ""
@@ -43,7 +45,7 @@ class ClaudeAssistantTest {
 
     @Test fun sendsTheRequestAndReadsTheAnswer() = runBlocking {
         reply(200, """{"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"Turn on a screen lock."}],"usage":{"input_tokens":10,"output_tokens":5}}""")
-        val r = ClaudeAssistant(url).ask("sk-ant-test", "claude-opus-5-5", "REPORT", "Q?")
+        val r = AiHttp(url).ask(Anthropic, "sk-ant-test", "claude-opus-5-5", "REPORT", "Q?")
         assertEquals("Turn on a screen lock.", (r as AiResult.Answer).text)
         assertEquals("sk-ant-test", seenHeaders["x-api-key"])
         assertEquals("2026-10-21", seenHeaders["anthropic-version"])
@@ -54,12 +56,12 @@ class ClaudeAssistantTest {
 
     @Test fun readsTheErrorBodyOnFailure() = runBlocking {
         reply(401, """{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}""")
-        val r = ClaudeAssistant(url).ask("bad", "claude-sonnet-5-5", "r", "q") as AiResult.Failed
+        val r = AiHttp(url).ask(Anthropic, "bad", "claude-sonnet-5-5", "r", "q") as AiResult.Failed
         assertTrue(r.badKey)
     }
 
     @Test fun anUnreachableServerIsAReadableFailure() = runBlocking {
-        val r = ClaudeAssistant("http://127.0.0.1:1/v1/messages").ask("k", "claude-haiku-5-5", "r", "q") as AiResult.Failed
-        assertTrue(r.message.startsWith("Could not reach Anthropic"))
+        val r = AiHttp("http://127.0.0.1:1/v1/messages").ask(Gemini, "k", "gemini-2.5-flash", "r", "q") as AiResult.Failed
+        assertTrue(r.message.startsWith("Could not reach Gemini"))
     }
 }

@@ -42,7 +42,7 @@ fun UltimateRoot(app: UltimateApp) {
     val incoming by shell.incoming.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val standalone = app.tools.size == 1
-    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity) }
+    val nav = remember { ShellNav(standalone, openLibrary = shell::showLibraryForCurrentTool, openActivity = shell::showActivity, tools = app.tools, send = { t, uris -> shell.open(t, ToolLaunch(uris)) }) }
 
     CompositionLocalProvider(LocalShellNav provides nav) {
         if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
