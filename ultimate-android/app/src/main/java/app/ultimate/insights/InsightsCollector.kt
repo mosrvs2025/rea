@@ -26,7 +26,7 @@ object InsightsCollector {
         InsightsInput(
             version = BuildConfig.VERSION_NAME, edition = BuildConfig.FLAVOR,
             device = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}", android = "${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
-            generatedAt = System.currentTimeMillis(), tools = tools,
+            generatedAt = System.currentTimeMillis(), trackingSince = stats.since, tools = tools,
             apps = if (includeApps) otherApps(app, usage) else null, usageAccess = usage,
             crashes = stats.crashes(), notes = notes,
         )

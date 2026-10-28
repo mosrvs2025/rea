@@ -69,7 +69,7 @@ import kotlinx.coroutines.withContext
 /** A single result row, shared by the Library, Home and each tool's own landing page. */
 @Composable
 fun LibraryRow(item: LibraryItem, tool: Tool, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         ThumbView(item.thumb, tool, Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {

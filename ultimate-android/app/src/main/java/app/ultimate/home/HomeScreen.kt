@@ -1,6 +1,8 @@
 package app.ultimate.home
 
 import app.ultimate.insights.InsightsSheet
+import app.ultimate.core.appear
+import app.ultimate.core.pressScale
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -79,6 +81,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         combine(app.work.sources.map { src -> src.work.map { src to it } }) { it.toList().filter { (_, w) -> w.active } }
     }.collectAsStateWithLifecycle(emptyList())
     val recent = all.sortedByDescending { it.createdAt }.take(3)
+    val seen = remember { mutableSetOf<Any>() }
     var showInsights by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (showInsights) InsightsSheet(app) { showInsights = false }
 
@@ -96,9 +99,9 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
-        itemsIndexed(app.tools, key = { _, t -> t.id }, span = { i, _ -> if (app.tools.size % 2 == 1 && i == app.tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { _, tool ->
+        itemsIndexed(app.tools, key = { _, t -> t.id }, span = { i, _ -> if (app.tools.size % 2 == 1 && i == app.tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { i, tool ->
             ToolTile(
-                tool, wide = app.tools.size % 2 == 1 && tool === app.tools.last(),
+                Modifier.animateItem().appear(tool.id, seen, i + 1), tool, wide = app.tools.size % 2 == 1 && tool === app.tools.last(),
                 active = running.any { it.first.workId == tool.id }, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
                 onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
             )
@@ -110,12 +113,12 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                     TextButton({ shell.showLibrary() }) { Text("See all") }
                 }
             }
-            items(recent, key = { it.id }, span = { GridItemSpan(maxLineSpan) }) { item ->
+            itemsIndexed(recent, key = { _, it -> it.id }, span = { _, _ -> GridItemSpan(maxLineSpan) }) { i, item ->
                 val tool = app.tools.first { it.id == item.toolId }
-                LibraryRow(item, tool, onClick = { openItem(app, tool, item) })
+                Box(Modifier.animateItem().appear(item.id, seen, app.tools.size + i)) { LibraryRow(item, tool, onClick = { openItem(app, tool, item) }) }
             }
         }
-        item(span = { GridItemSpan(maxLineSpan) }) { ShapeCard { showInsights = true } }
+        item(span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.appear("shape", seen, app.tools.size + 4)) { ShapeCard { showInsights = true } } }
     }
 }
 
@@ -126,7 +129,7 @@ private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, o
         0.35f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot",
     )
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable(onClick = onView).padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
+        Modifier.fillMaxWidth().pressScale(0.97f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).clickable(onClick = onView).padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error.copy(alpha = pulse)))
@@ -144,15 +147,16 @@ private fun RunningBanner(source: WorkSource, snap: WorkSnapshot, tool: Tool?, o
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ToolTile(tool: Tool, wide: Boolean, active: Boolean, stop: WorkSource?, onLibrary: () -> Unit, onClick: () -> Unit) {
+private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, active: Boolean, stop: WorkSource?, onLibrary: () -> Unit, onClick: () -> Unit) {
     val headline by tool.headline.collectAsStateWithLifecycle()
     var menu by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
-    Box {
+    val container by androidx.compose.animation.animateColorAsState(if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, label = "tile")
+    Box(modifier) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = if (active) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerLow),
+            colors = CardDefaults.cardColors(containerColor = container),
             shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).combinedClickable(
+            modifier = Modifier.fillMaxWidth().pressScale().clip(RoundedCornerShape(24.dp)).combinedClickable(
                 onClick = onClick,
                 onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); menu = true },
             ),
@@ -214,7 +218,7 @@ internal fun openItem(app: UltimateApp, tool: app.ultimate.core.Tool, item: app.
 @Composable
 private fun ShapeCard(onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.secondaryContainer).clickable(onClick = onClick).padding(16.dp),
+        Modifier.fillMaxWidth().padding(top = 8.dp).pressScale(0.97f).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.secondaryContainer).clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(androidx.compose.material.icons.Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)

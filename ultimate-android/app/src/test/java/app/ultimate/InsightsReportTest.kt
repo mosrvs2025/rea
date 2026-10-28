@@ -39,6 +39,14 @@ class InsightsReportTest {
         assertFalse(md.contains("CapCut"))
     }
 
+    @Test fun idleAppsShareOneLineAndCountingStartIsShown() {
+        val md = InsightsReport.markdown(base.copy(trackingSince = 1_760_000_000_000 - 2 * 86_400_000L, apps = base.apps!! + OtherApp("Zoom", "z", "Productivity", 0, 0, null) + OtherApp("Gmail", "g", "Social", 0, 5, null)))
+        assertTrue(md.contains("(2 days)"))
+        assertTrue(md.contains("Not opened in 60 days: Zoom."))
+        assertTrue(md.contains("not this week: Gmail."))
+        assertFalse(md.contains("| Zoom |"))
+    }
+
     @Test fun unknownUsageIsSaidPlainly() {
         val md = InsightsReport.markdown(base.copy(usageAccess = false, apps = listOf(OtherApp("Maps", "m", "Maps", null, null, null))))
         assertTrue(md.contains("Usage access is off"))

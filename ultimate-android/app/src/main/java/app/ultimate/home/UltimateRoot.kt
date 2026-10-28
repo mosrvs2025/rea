@@ -1,5 +1,20 @@
 package app.ultimate.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.graphicsLayer
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -77,35 +92,69 @@ fun UltimateRoot(app: UltimateApp) {
 private fun SuiteRoot(app: UltimateApp, route: Route) {
     val shell = app.shell
     val active by remember { combine(app.work.sources.map { it.work }) { s -> s.any { it.active } } }.collectAsStateWithLifecycle(false)
-    when (route) {
-        is Route.InTool -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
-            // Each tool keeps its own state while the user hops between them.
-            androidx.compose.runtime.key(route.tool.id) { route.tool.Screen(onExit = shell::exitTool, launch = route.launch) }
-            ToolSwitcher(app, route.tool)
+    // A tool zooms up out of Home and settles back into it; the tabs slide towards the side they sit on.
+    AnimatedContent(
+        route, label = "route",
+        contentKey = { r -> if (r is Route.InTool) "tool:${r.tool.id}" else "tabs" },
+        transitionSpec = {
+            val intoTool = targetState is Route.InTool
+            if (intoTool) (scaleIn(tween(320, easing = EaseOutBack), initialScale = 0.9f) + fadeIn(tween(220))) togetherWith (scaleOut(tween(260), targetScale = 1.04f) + fadeOut(tween(180)))
+            else (scaleIn(tween(300), initialScale = 1.04f) + fadeIn(tween(240))) togetherWith (scaleOut(tween(240), targetScale = 0.92f) + fadeOut(tween(200)))
+        },
+    ) { shown ->
+        when (shown) {
+            is Route.InTool -> androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                // Each tool keeps its own state while the user hops between them.
+                androidx.compose.runtime.key(shown.tool.id) { shown.tool.Screen(onExit = shell::exitTool, launch = shown.launch) }
+                ToolSwitcher(app, shown.tool)
+            }
+            else -> Tabs(app, if (route is Route.InTool) shown else route, active)
         }
-        else -> {
-            BackHandler(enabled = route != Route.Home, onBack = shell::showHome)
-            Scaffold(
-                bottomBar = {
-                    NavigationBar {
-                        NavigationBarItem(route == Route.Home, shell::showHome, { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
-                        NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { Icon(Icons.Rounded.VideoLibrary, null) }, label = { Text("Library") })
-                        NavigationBarItem(
-                            route == Route.Activity, shell::showActivity,
-                            { BadgedBox(badge = { if (active) Badge() }) { Icon(Icons.Rounded.Terminal, null) } },
-                            label = { Text("Activity") },
-                        )
-                    }
-                },
-            ) { pad ->
-                when (route) {
-                    Route.Library -> LibraryScreen(app, pad)
-                    Route.Activity -> ActivityScreen(app, pad)
-                    else -> HomeScreen(app, pad)
-                }
+    }
+}
+
+private fun tabIndex(r: Route) = when (r) { Route.Library -> 1; Route.Activity -> 2; else -> 0 }
+
+@Composable
+private fun Tabs(app: UltimateApp, route: Route, active: Boolean) {
+    val shell = app.shell
+    BackHandler(enabled = route != Route.Home, onBack = shell::showHome)
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(route == Route.Home, shell::showHome, { BouncyIcon(Icons.Rounded.Home, route == Route.Home) }, label = { Text("Home") })
+                NavigationBarItem(route == Route.Library, { shell.showLibrary() }, { BouncyIcon(Icons.Rounded.VideoLibrary, route == Route.Library) }, label = { Text("Library") })
+                NavigationBarItem(
+                    route == Route.Activity, shell::showActivity,
+                    { BadgedBox(badge = { if (active) Badge() }) { BouncyIcon(Icons.Rounded.Terminal, route == Route.Activity) } },
+                    label = { Text("Activity") },
+                )
+            }
+        },
+    ) { pad ->
+        AnimatedContent(
+            route, label = "tab",
+            transitionSpec = {
+                val dir = if (tabIndex(targetState) > tabIndex(initialState)) 1 else -1
+                (slideInHorizontally(tween(320, easing = EaseOutCubic)) { it / 5 * dir } + fadeIn(tween(260))) togetherWith
+                    (slideOutHorizontally(tween(260)) { -it / 5 * dir } + fadeOut(tween(180)))
+            },
+        ) { r ->
+            when (r) {
+                Route.Library -> LibraryScreen(app, pad)
+                Route.Activity -> ActivityScreen(app, pad)
+                else -> HomeScreen(app, pad)
             }
         }
     }
+}
+
+/** The selected tab's icon hops and grows a touch, so the bar answers the tap. */
+@Composable
+private fun BouncyIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean) {
+    val scale by animateFloatAsState(if (selected) 1.15f else 1f, spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow), label = "tabIcon")
+    val lift by animateFloatAsState(if (selected) -2f else 0f, spring(Spring.DampingRatioMediumBouncy), label = "tabLift")
+    Icon(icon, null, androidx.compose.ui.Modifier.graphicsLayer { scaleX = scale; scaleY = scale; translationY = lift * density })
 }
 
 /** A build with one tool: the tool is the home screen; Library and Activity open from its top bar. */

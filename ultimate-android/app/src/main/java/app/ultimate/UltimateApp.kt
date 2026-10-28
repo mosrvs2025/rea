@@ -73,6 +73,7 @@ class UltimateApp : Application() {
     override fun onCreate() {
         super.onCreate()
         insights.installCrashCatcher()
+        insights.since
         // Every manager must be registered before the first background job starts, so the one service watches them all.
         if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)

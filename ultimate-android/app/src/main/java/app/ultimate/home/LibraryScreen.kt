@@ -62,6 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.core.appear
+import androidx.compose.foundation.lazy.itemsIndexed
 import app.ultimate.core.AppIcon
 import app.ultimate.core.AudioPlayerBar
 import app.ultimate.core.LibraryDetailSheet
@@ -86,6 +88,7 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
     val filter by app.shell.libraryFilter.collectAsStateWithLifecycle()
     var sheet by remember { mutableStateOf<LibraryItem?>(null) }
     LaunchedEffect(Unit) { app.tools.forEach { it.refresh() } }
+    val seen = remember { mutableSetOf<Any>() }
     val shown = all.filter { filter == null || it.toolId == filter }.sortedByDescending { it.createdAt }
 
     LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -99,12 +102,12 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
         item {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(filter == null, { app.shell.setLibraryFilter(null) }, { Text("All") })
-                app.tools.forEach { t -> FilterChip(filter == t.id, { app.shell.setLibraryFilter(t.id) }, { Text(t.title) }) }
+                app.tools.forEach { t -> FilterChip(filter == t.id, { app.shell.setLibraryFilter(t.id) }, { Text(t.title) }, leadingIcon = { Icon(t.icon, null, Modifier.size(16.dp)) }) }
             }
         }
         if (shown.isEmpty()) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(vertical = 72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            item(key = "empty-$filter") {
+                Column(Modifier.fillMaxWidth().padding(vertical = 72.dp).animateItem().appear("empty-$filter", seen), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(12.dp))
                     Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
@@ -112,9 +115,12 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
                 }
             }
         }
-        items(shown, key = { it.id }) { item ->
+        itemsIndexed(shown, key = { _, it -> it.id }) { i, item ->
             val tool = app.tools.first { it.id == item.toolId }
-            LibraryRow(item, tool, onClick = { if (tool.opensOwnScreen(item)) openItem(app, tool, item) else sheet = item })
+            // Changing the filter slides rows out and in rather than swapping the list in one frame.
+            Box(Modifier.animateItem().appear(item.id, seen, i)) {
+                LibraryRow(item, tool, onClick = { if (tool.opensOwnScreen(item)) openItem(app, tool, item) else sheet = item })
+            }
         }
     }
 

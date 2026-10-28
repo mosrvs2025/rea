@@ -14,19 +14,19 @@ class InsightsStore(context: Context, private val version: String) {
     private val prefs = context.getSharedPreferences("insights", Context.MODE_PRIVATE)
     private val crashFile = File(context.filesDir, "crashes.json")
     private var current: String? = null
-    private var since = 0L
+    private var startedAt = 0L
 
     fun entered(toolId: String) {
         left()
         current = toolId
-        since = SystemClock.elapsedRealtime()
+        startedAt = SystemClock.elapsedRealtime()
         prefs.edit().putInt("opens.$toolId", prefs.getInt("opens.$toolId", 0) + 1).putLong("last.$toolId", System.currentTimeMillis()).apply()
     }
 
     fun left() {
         val id = current ?: return
         current = null
-        val ms = (SystemClock.elapsedRealtime() - since).coerceIn(0, 6 * 3_600_000L)
+        val ms = (SystemClock.elapsedRealtime() - startedAt).coerceIn(0, 6 * 3_600_000L)
         prefs.edit().putLong("ms.$id", prefs.getLong("ms.$id", 0) + ms).apply()
     }
 
@@ -34,10 +34,13 @@ class InsightsStore(context: Context, private val version: String) {
 
     /** The app went to the background: stop the clock without counting a new open when it comes back. */
     fun pause() { paused = current; left() }
-    fun resume() { paused?.let { current = it; since = SystemClock.elapsedRealtime() }; paused = null }
+    fun resume() { paused?.let { current = it; startedAt = SystemClock.elapsedRealtime() }; paused = null }
+
+    /** When counting began, so a report can tell "never opened" from "not counted yet". */
+    val since: Long get() = prefs.getLong("since", 0L).takeIf { it > 0 } ?: System.currentTimeMillis().also { prefs.edit().putLong("since", it).apply() }
 
     fun opens(id: String) = prefs.getInt("opens.$id", 0)
-    fun minutes(id: String) = (prefs.getLong("ms.$id", 0) + if (id == current) SystemClock.elapsedRealtime() - since else 0) / 60_000
+    fun minutes(id: String) = (prefs.getLong("ms.$id", 0) + if (id == current) SystemClock.elapsedRealtime() - startedAt else 0) / 60_000
     fun lastAt(id: String) = prefs.getLong("last.$id", 0)
 
     fun crashes(): List<Crash> = runCatching {

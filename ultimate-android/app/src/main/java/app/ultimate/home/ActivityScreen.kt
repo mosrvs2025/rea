@@ -35,6 +35,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.UltimateApp
+import app.ultimate.core.appear
+import app.ultimate.core.pressScale
+import androidx.compose.foundation.lazy.itemsIndexed
 import app.ultimate.core.Terminal
 import app.ultimate.core.WorkSource
 
@@ -42,6 +45,7 @@ import app.ultimate.core.WorkSource
 @Composable
 fun ActivityScreen(app: UltimateApp, pad: PaddingValues) {
     val sources = app.work.sources.filter { s -> app.tools.any { it.id == s.workId } }
+    val seen = androidx.compose.runtime.remember { mutableSetOf<Any>() }
     LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Text("Activity", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
@@ -50,7 +54,7 @@ fun ActivityScreen(app: UltimateApp, pad: PaddingValues) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        items(sources, key = { it.workId }) { SourceCard(app, it) }
+        itemsIndexed(sources, key = { _, it -> it.workId }) { i, src -> Box(Modifier.animateItem().appear(src.workId, seen, i)) { SourceCard(app, src) } }
     }
 }
 
@@ -61,7 +65,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
     val tool = app.tools.firstOrNull { it.id == source.workId }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).let { m -> if (tool != null) m.clickable { app.shell.open(tool) } else m },
+            Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).let { m -> if (tool != null) m.clickable { app.shell.open(tool) } else m },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -89,7 +93,8 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "Open ${tool.title}", tint = MaterialTheme.colorScheme.outline)
             }
         }
-        if (snap.active) LinearProgressIndicator(progress = { (snap.percent ?: 0) / 100f }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)))
+        val progress by androidx.compose.animation.core.animateFloatAsState((snap.percent ?: 0) / 100f, label = "progress")
+        androidx.compose.animation.AnimatedVisibility(snap.active) { LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))) }
         if (lines.isNotEmpty()) {
             Terminal(lines, live = snap.active, title = source.workTitle.lowercase().replace(' ', '-') + ".log", startExpanded = snap.active)
         } else {

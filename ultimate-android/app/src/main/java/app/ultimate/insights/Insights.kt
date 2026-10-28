@@ -24,6 +24,8 @@ data class InsightsInput(
     val usageAccess: Boolean,
     val crashes: List<Crash>,
     val notes: String,
+    /** When Ultimate started counting tool use. */
+    val trackingSince: Long = 0,
 )
 
 /** Turns what the phone knows about Ultimate's use into Markdown an AI (or a person) can plan the next version from. */
@@ -42,13 +44,18 @@ object InsightsReport {
         appendLine()
         appendLine("## Tools")
         appendLine()
+        if (i.trackingSince > 0) {
+            val days = ((i.generatedAt - i.trackingSince) / 86_400_000L).coerceAtLeast(0)
+            appendLine("Counting since ${day.format(Date(i.trackingSince))} ($days day${if (days == 1L) "" else "s"}). Results include work from before then.")
+            appendLine()
+        }
         appendLine("| Tool | Opens | Minutes | Last used | Results |")
         appendLine("|---|---:|---:|---|---:|")
         i.tools.sortedWith(compareByDescending<ToolUse> { it.minutes }.thenByDescending { it.opens }).forEach { t ->
             appendLine("| ${cell(t.title)} | ${t.opens} | ${t.minutes} | ${if (t.lastAt > 0) day.format(Date(t.lastAt)) else "never"} | ${t.results} |")
         }
         val unused = i.tools.filter { it.opens == 0 }
-        if (unused.isNotEmpty()) appendLine("\nNever opened: ${unused.joinToString { it.title }}.")
+        if (unused.isNotEmpty() && i.tools.any { it.opens > 0 }) appendLine("\nNever opened: ${unused.joinToString { it.title }}.")
         appendLine()
         if (i.notes.isNotBlank()) {
             appendLine("## My notes")
@@ -76,9 +83,17 @@ object InsightsReport {
             }
             appendLine("| App | Category | Min / 7 days | Last used |")
             appendLine("|---|---|---:|---|")
-            rest.sortedWith(compareByDescending<OtherApp> { it.minutes7d ?: -1 }.thenBy { it.label.lowercase() }).forEach { a ->
+            // Apps with no time this week only matter as names, so they share one line instead of a row each.
+            val (used, idle) = if (i.usageAccess) rest.partition { (it.minutes7d ?: 0) > 0 } else rest to emptyList()
+            used.sortedWith(compareByDescending<OtherApp> { it.minutes7d ?: -1 }.thenBy { it.label.lowercase() }).forEach { a ->
                 val last = a.lastUsedAt?.let { if (it > 0) day.format(Date(it)) else "not in 60 days" } ?: "unknown"
                 appendLine("| ${cell(a.label)} | ${a.category} | ${a.minutes7d ?: "?"} | $last |")
+            }
+            if (idle.isNotEmpty()) {
+                val (recent, stale) = idle.partition { (it.lastUsedAt ?: 0) > 0 }
+                appendLine()
+                if (recent.isNotEmpty()) appendLine("Opened in the last 60 days but not this week: ${recent.sortedBy { it.label.lowercase() }.joinToString { it.label }}.")
+                if (stale.isNotEmpty()) appendLine("Not opened in 60 days: ${stale.sortedBy { it.label.lowercase() }.joinToString { it.label }}.")
             }
         }
     }
