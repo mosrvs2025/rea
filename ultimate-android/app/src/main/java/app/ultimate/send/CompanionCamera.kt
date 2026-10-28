@@ -39,16 +39,20 @@ fun CompanionCamera(server: SendServer, front: Boolean) {
                         if (now - last >= 120) {
                             last = now
                             val plane = image.planes[0]
-                            val paddedWidth = plane.rowStride / plane.pixelStride
-                            val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
-                            padded.copyPixelsFromBuffer(plane.buffer)
-                            val crop = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
+                            // Camera buffers may pad rows but omit the final row's padding.
+                            val pixels = ByteArray(image.width * image.height * 4)
+                            val source = plane.buffer.duplicate()
+                            for (row in 0 until image.height) {
+                                source.position(row * plane.rowStride)
+                                source.get(pixels, row * image.width * 4, image.width * 4)
+                            }
+                            val crop = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+                            crop.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(pixels))
                             val rotated = Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, Matrix().apply { postRotate(image.imageInfo.rotationDegrees.toFloat()) }, true)
                             val bytes = ByteArrayOutputStream().use { output -> rotated.compress(Bitmap.CompressFormat.JPEG, 65, output); output.toByteArray() }
                             server.frame(bytes)
-                            if (rotated !== crop && rotated !== padded) rotated.recycle()
-                            if (crop !== padded) crop.recycle()
-                            padded.recycle()
+                            if (rotated !== crop) rotated.recycle()
+                            crop.recycle()
                         }
                     } catch (_: Exception) { /* A dropped frame does not end the session. */ }
                     finally { image.close() }
