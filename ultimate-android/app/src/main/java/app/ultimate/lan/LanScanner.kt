@@ -40,6 +40,8 @@ data class NetInfo(val ip: String, val gateway: String?, val dns: List<String>, 
 class LanScanner(private val context: Context) {
     private val cm = context.getSystemService(ConnectivityManager::class.java)
 
+    /** ACCESS_NETWORK_STATE is declared only in editions that ship this tool (Ultimate+); R8 removes it from the others. */
+    @android.annotation.SuppressLint("MissingPermission")
     fun netInfo(): NetInfo? {
         val net = cm.activeNetwork ?: return null
         val lp = cm.getLinkProperties(net) ?: return null
