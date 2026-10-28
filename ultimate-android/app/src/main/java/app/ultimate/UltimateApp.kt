@@ -102,6 +102,7 @@ class UltimateApp : Application() {
         if (BuildConfig.HAS_SEND) follow("Send to computer", kotlinx.coroutines.flow.flow { sendServer.state.collect { emit(it.error) } })
         // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
         automations.watchScreenRecordings()
+        if (BuildConfig.HAS_FILES) app.ultimate.files.UpdateWatcher.arm(this)
         // Every manager must be registered before the first background job starts, so the one service watches them all.
         if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)

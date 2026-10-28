@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && BuildConfig.HAS_CLIPS) ultimate.clips.captureNow("opened")
+        // A newer APK downloaded while Ultimate was closed is offered the next time it opens.
+        if (hasFocus && BuildConfig.HAS_FILES) Thread { runCatching { app.ultimate.files.UpdateWatcher.find(this)?.let { app.ultimate.files.UpdateWatcher.notify(this, it) } } }.start()
     }
 
     override fun onNewIntent(intent: Intent) {

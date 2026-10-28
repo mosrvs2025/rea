@@ -85,3 +85,14 @@ class FilesTest {
         assertTrue(ApkBundle.isArchive("App.XAPK")); assertFalse(ApkBundle.isArchive("app.apk"))
     }
 }
+
+class UpdateRulesTest {
+    @org.junit.Test fun onlyNewerSameAppSameSigner() {
+        val r = app.ultimate.files.UpdateRules
+        org.junit.Assert.assertTrue(r.isUpdate("app.ultimate.plus", 24, setOf("k"), "app.ultimate.plus", 23, setOf("k")))
+        org.junit.Assert.assertFalse(r.isUpdate("app.ultimate.plus", 23, setOf("k"), "app.ultimate.plus", 23, setOf("k")))
+        org.junit.Assert.assertFalse(r.isUpdate("app.ultimate", 99, setOf("k"), "app.ultimate.plus", 23, setOf("k")))
+        org.junit.Assert.assertFalse(r.isUpdate("app.ultimate.plus", 99, setOf("other"), "app.ultimate.plus", 23, setOf("k")))
+        org.junit.Assert.assertFalse(r.isUpdate("app.ultimate.plus", 99, emptySet(), "app.ultimate.plus", 23, emptySet()))
+    }
+}
