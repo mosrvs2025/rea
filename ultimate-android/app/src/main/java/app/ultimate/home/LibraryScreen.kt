@@ -34,6 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -95,7 +96,12 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
     val seen = remember { mutableSetOf<Any>() }
     var filterMenu by remember { mutableStateOf(false) }
     var bySize by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    val shown = all.filter { filter == null || it.toolId == filter }.sortedByDescending { if (bySize) it.bytes else it.createdAt }
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    val transcripts by app.transcripts.all.collectAsStateWithLifecycle()
+    // Search covers names, details and anything said in transcribed recordings and videos.
+    val q = query.trim().lowercase()
+    val shown = all.filter { filter == null || it.toolId == filter }
+        .filter { q.isEmpty() || it.title.lowercase().contains(q) || it.subtitle.lowercase().contains(q) || transcripts[it.uri]?.lowercase()?.contains(q) == true }.sortedByDescending { if (bySize) it.bytes else it.createdAt }
 
     LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -103,6 +109,13 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
             Text(
                 "${all.size} item${if (all.size == 1) "" else "s"} · ${formatBytes(all.sumOf { it.bytes })}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item {
+            androidx.compose.material3.OutlinedTextField(
+                query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(24.dp),
+                placeholder = { Text("Search names and what was said") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
             )
         }
         item {
@@ -138,7 +151,7 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 72.dp).animateItem().appear("empty-$filter", seen), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Rounded.VideoLibrary, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.outline)
                     Spacer(Modifier.height(12.dp))
-                    Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
+                    Text(if (q.isEmpty()) "Nothing here yet" else "Nothing matches \"$query\"", style = MaterialTheme.typography.titleMedium)
                     Text("Everything you make shows up here.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 }
             }

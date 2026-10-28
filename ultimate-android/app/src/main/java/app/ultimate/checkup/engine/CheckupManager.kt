@@ -6,10 +6,13 @@ import app.ultimate.BuildConfig
 import app.ultimate.UltimateApp
 import app.ultimate.checkup.model.Checkup
 import app.ultimate.checkup.model.Scan
+import app.ultimate.checkup.model.Guardian
+import app.ultimate.checkup.model.Change
 import app.ultimate.checkup.model.Report
 import app.ultimate.checkup.model.ReportOptions
 import app.ultimate.checkup.model.Severity
 import app.ultimate.core.JobLog
+import app.ultimate.core.relativeTime
 import app.ultimate.core.WorkSnapshot
 import app.ultimate.core.WorkSource
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,6 +77,10 @@ class CheckupManager(private val app: UltimateApp) : WorkSource {
 
     fun usageAccess() = collector.hasUsageAccess()
 
+    private val snapshotFile = java.io.File(app.filesDir, "guardian.json")
+    /** What changed since the checkup before the latest one, and when that one ran; null before there are two checkups. */
+    val changes = MutableStateFlow<Pair<Long, List<Change>>?>(null)
+
     fun scan() {
         if (_state.value is State.Scanning) return
         log.reset()
@@ -81,31 +88,45 @@ class CheckupManager(private val app: UltimateApp) : WorkSource {
         _state.value = State.Scanning("Reading this phone", 0, 0)
         app.work.start()
         job = scope.launch {
-            try {
-                val usage = collector.hasUsageAccess()
-                val device = withContext(Dispatchers.IO) { collector.device() }
-                val ads = if (BuildConfig.HAS_PLUCK) adSdks() else null
-                val apps = withContext(Dispatchers.IO) {
-                    collector.apps(ads, usage) { done, total -> _state.value = State.Scanning("Checking apps", done, total) }
-                }
-                _state.value = State.Scanning("Weighing it up", apps.size, apps.size)
-                val now = System.currentTimeMillis()
-                val scan = Scan(now, device, apps, usage, Checkup.findings(device, apps, now, usage, own))
-                log.ok("Score ${scan.score}/100 · ${apps.size} apps · ${scan.findings.count { it.severity == Severity.Critical }} critical, ${scan.findings.count { it.severity == Severity.Warning }} warnings")
-                archive.save(
-                    now, scan.score, scan.findings.count { it.severity == Severity.Critical }, scan.findings.count { it.severity == Severity.Warning }, apps.size,
-                    Report.PROMPT + "\n\n" + Report.markdown(scan, ReportOptions(), own),
-                )?.let { log.detail("  saved   Documents/Ultimate (in the Library)") }
-                _state.value = State.Done(scan)
-                _last.value = scan.score to now
-                prefs.edit().putInt("score", scan.score).putLong("at", now).apply()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
+            try { runScan() } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 log.error(e.message ?: e.javaClass.simpleName)
                 _state.value = State.Failed(e.message ?: e.javaClass.simpleName)
             }
         }
+    }
+
+    /**
+     * The checkup itself, also run by the weekly background check (which has no screen or foreground service). Returns what
+     * changed since the previous checkup.
+     */
+    suspend fun runScan(): List<Change> {
+        _state.value = State.Scanning("Reading this phone", 0, 0)
+        val usage = collector.hasUsageAccess()
+        val device = withContext(Dispatchers.IO) { collector.device() }
+        val ads = if (BuildConfig.HAS_PLUCK) adSdks() else null
+        val apps = withContext(Dispatchers.IO) {
+            collector.apps(ads, usage) { done, total -> _state.value = State.Scanning("Checking apps", done, total) }
+        }
+        _state.value = State.Scanning("Weighing it up", apps.size, apps.size)
+        val now = System.currentTimeMillis()
+        val scan = Scan(now, device, apps, usage, Checkup.findings(device, apps, now, usage, own))
+        log.ok("Score ${scan.score}/100 · ${apps.size} apps · ${scan.findings.count { it.severity == Severity.Critical }} critical, ${scan.findings.count { it.severity == Severity.Warning }} warnings")
+        archive.save(
+            now, scan.score, scan.findings.count { it.severity == Severity.Critical }, scan.findings.count { it.severity == Severity.Warning }, apps.size,
+            Report.PROMPT + "\n\n" + Report.markdown(scan, ReportOptions(), own),
+        )?.let { log.detail("  saved   Documents/Ultimate (in the Library)") }
+        val snap = Guardian.snapshot(scan, own)
+        val diff = withContext(Dispatchers.IO) {
+            val previous = runCatching { Guardian.decode(snapshotFile.readText()) }.getOrNull()
+            snapshotFile.writeText(Guardian.encode(snap))
+            previous?.let { it.at to Guardian.diff(it, snap) }
+        }
+        changes.value = diff
+        diff?.second?.takeIf { it.isNotEmpty() }?.let { log.detail("  changes ${it.size} since ${relativeTime(diff.first)}") }
+        _state.value = State.Done(scan)
+        _last.value = scan.score to now
+        prefs.edit().putInt("score", scan.score).putLong("at", now).apply()
+        return diff?.second.orEmpty()
     }
 
     /** Ad SDKs per app from Pluck's code scan, or null when it has never run (unknown, not "none"). */

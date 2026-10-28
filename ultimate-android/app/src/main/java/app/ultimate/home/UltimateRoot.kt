@@ -65,26 +65,8 @@ fun UltimateRoot(app: UltimateApp) {
         if (standalone) StandaloneRoot(app, route, onExitApp = { (context as? Activity)?.finish() }) else SuiteRoot(app, route)
     }
 
-    incoming?.let { pending ->
-        AlertDialog(
-            onDismissRequest = shell::dismissIncoming,
-            title = { Text(if (pending.uris.size == 1) "What should happen to this file?" else "What should happen to these ${pending.uris.size} files?") },
-            text = {
-                Column {
-                    pending.candidates.forEach { tool ->
-                        ListItem(
-                            headlineContent = { Text(tool.title) },
-                            supportingContent = { Text(tool.tagline) },
-                            leadingContent = { Icon(tool.icon, null) },
-                            modifier = Modifier.clickable { shell.chooseForIncoming(tool) },
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(shell::dismissIncoming) { Text("Cancel") } },
-        )
-    }
+    incoming?.let { pending -> HandSheet(app, pending) }
+
 }
 
 /** The full app: Home, Library and Activity tabs, with tools opening full screen. */

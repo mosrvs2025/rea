@@ -57,6 +57,10 @@ class UltimateApp : Application() {
     val studioManager: StudioManager by lazy { StudioManager(this, work) }
     val recorder by lazy { app.ultimate.recorder.RecorderManager(this) }
     val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
+    val automations by lazy { app.ultimate.recipes.Automations(this) }
+    val recipes by lazy { app.ultimate.recipes.RecipeRunner(this) }
+    val sendServer by lazy { app.ultimate.send.SendServer(this) }
+    val transcripts by lazy { app.ultimate.speech.TranscriptStore(this) }
     val prompter by lazy { app.ultimate.prompter.PrompterStore(this) }
 
     val tools: List<Tool> by lazy {
@@ -66,12 +70,15 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_RECORDER) add(app.ultimate.recorder.RecorderTool(recorder))
             if (BuildConfig.HAS_PHOTOS) add(app.ultimate.photos.PhotosTool(photos))
             if (BuildConfig.HAS_PROMPTER) add(app.ultimate.prompter.PrompterTool(prompter))
+            if (BuildConfig.HAS_RECORDER) add(app.ultimate.recipes.RecipesTool(this@UltimateApp))
             if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
             if (BuildConfig.HAS_SOUND) add(SoundTool(this@UltimateApp))
             if (BuildConfig.HAS_TRAFFIC) add(TrafficTool(this@UltimateApp))
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
+            if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
+            if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }
     }
@@ -80,6 +87,8 @@ class UltimateApp : Application() {
         super.onCreate()
         insights.installCrashCatcher()
         insights.since
+        // A content trigger fires once, so it is re-armed at every start in case the last one was used up while the app was away.
+        automations.watchScreenRecordings()
         // Every manager must be registered before the first background job starts, so the one service watches them all.
         if (BuildConfig.HAS_SQUEEZE) work.register(squeezeManager)
         if (BuildConfig.HAS_PLUCK) work.register(pluckManager)

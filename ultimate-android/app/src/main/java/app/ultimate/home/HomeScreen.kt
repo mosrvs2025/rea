@@ -45,6 +45,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.Card
@@ -98,6 +100,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
                 Hero(saved, all.size) { showSavings = true }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
@@ -250,9 +253,55 @@ internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
         "Phone" to listOf("checkup", "pluck", "sensors", "sound-meter"),
-        "Network" to listOf("traffic", "lan"),
+        "Network" to listOf("traffic", "lan", "send"),
+        "Smart" to listOf("recipes", "screentime"),
     )
     val placed = families.values.flatten().toSet()
     return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))
         .filter { it.second.isNotEmpty() }
+}
+
+/**
+ * "What do you want to do?" Typed words become ranked actions as you type, and "Open a file" hands anything to the
+ * same sheet that sharing into the app uses.
+ */
+@Composable
+private fun AskBar(app: UltimateApp) {
+    var query by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("") }
+    val ids = remember { app.tools.map { it.id }.toSet() }
+    val results = remember(query) { Commands.available(Commands.search(query), ids, false) }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) app.shell.offerShared(uris, app.contentResolver.getType(uris[0]))
+    }
+    Column(Modifier.padding(top = 4.dp)) {
+        androidx.compose.material3.OutlinedTextField(
+            query, { query = it }, Modifier.fillMaxWidth(),
+            placeholder = { Text("What do you want to do?") }, singleLine = true, shape = RoundedCornerShape(28.dp),
+            leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary) },
+            trailingIcon = {
+                if (query.isEmpty()) androidx.compose.material3.IconButton({ picker.launch(arrayOf("video/*", "image/*", "audio/*")) }) { Icon(Icons.Rounded.AttachFile, "Open a file") }
+                else androidx.compose.material3.IconButton({ query = "" }) { Icon(Icons.Rounded.Close, "Clear") }
+            },
+        )
+        androidx.compose.animation.AnimatedVisibility(results.isNotEmpty() || query.length >= 2) {
+            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (results.isEmpty()) Text("Nothing matches yet. Try \"make a video smaller\" or \"record my voice\".", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp))
+                results.take(4).forEach { a ->
+                    val tool = app.tools.firstOrNull { it.id == a.toolId } ?: return@forEach
+                    Row(
+                        Modifier.fillMaxWidth().pressScale(0.98f).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
+                            .clickable { query = ""; app.shell.open(tool) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(tool.icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(a.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                            Text(a.detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

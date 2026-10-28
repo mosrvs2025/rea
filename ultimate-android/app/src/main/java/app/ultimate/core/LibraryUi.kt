@@ -119,6 +119,7 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
             Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             item.uri?.let { SendTo(Uri.parse(it), item.mimeType, tool.id, onSent = onDismiss) }
             if (item.mimeType.startsWith("text/") && item.uri != null) TextPreview(item.uri)
+            if ((item.mimeType.startsWith("audio/") || item.mimeType.startsWith("video/")) && item.uri != null) TranscriptSection(item.uri)
             if (item.mimeType.startsWith("audio/") && item.uri != null) {
                 AudioPlayerBar(Uri.parse(item.uri), (item.thumb as? Thumb.Waveform)?.peaks.orEmpty())
             }
@@ -164,6 +165,46 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
                 }
             },
         )
+    }
+}
+
+/** What was said in an audio or video result, made on the phone on request and kept so the Library can search it. */
+@Composable
+private fun TranscriptSection(uri: String) {
+    val context = LocalContext.current
+    val ultimate = context.applicationContext as app.ultimate.UltimateApp
+    val all by ultimate.transcripts.all.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var progress by remember(uri) { mutableStateOf<Float?>(null) }
+    var problem by remember(uri) { mutableStateOf<String?>(null) }
+    val text = all[uri]
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        when {
+            text != null -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Transcript", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    TextButton({ copyText(context, "Transcript", text) }) { Text("Copy") }
+                }
+                androidx.compose.foundation.layout.Box(
+                    Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(12.dp),
+                ) { androidx.compose.foundation.text.selection.SelectionContainer { Text(text.ifBlank { "No speech was found." }, style = MaterialTheme.typography.bodySmall) } }
+            }
+            progress != null -> Column {
+                Text("Listening… ${((progress ?: 0f) * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.LinearProgressIndicator(progress = { progress ?: 0f }, Modifier.fillMaxWidth())
+            }
+            else -> androidx.compose.material3.OutlinedButton({
+                scope.launch {
+                    progress = 0f; problem = null
+                    runCatching { app.ultimate.speech.Transcriber(context).transcribe(Uri.parse(uri)) { progress = it } }
+                        .onSuccess { ultimate.transcripts.put(uri, app.ultimate.speech.Captions.transcript(it)) }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = it.message }
+                    progress = null
+                }
+            }) { Text("Transcribe what's said") }
+        }
+        problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }
 

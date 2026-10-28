@@ -45,13 +45,23 @@ object StudioEffects {
         if (c.brightness != 0f) add(Brightness(c.brightness))
         add(Presentation.createForWidthAndHeight(p.width, p.height, if (p.fillCanvas) Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP else Presentation.LAYOUT_SCALE_TO_FIT))
         if (c.title.isNotBlank()) add(OverlayEffect(ImmutableList.of<TextureOverlay>(caption(c, p))))
+        if (c.captions.isNotEmpty()) add(OverlayEffect(ImmutableList.of<TextureOverlay>(SpeechCaptions(c, p))))
         if (exporting && c.speed != 1f) add(SpeedChangeEffect(c.speed))
         if (exporting) add(FrameDropEffect.createDefaultFrameDropEffect(30f))
     }
     /** The caption as a text overlay, styled and placed as chosen; preview and export share it. */
-    fun caption(c: StudioClip, p: StudioProject): TextOverlay {
+    fun caption(c: StudioClip, p: StudioProject): TextOverlay =
+        TextOverlay.createStaticTextOverlay(styled(c.title, c), settings(c, p, c.titlePosition))
+
+    fun settings(c: StudioClip, p: StudioProject, position: Int): OverlaySettings {
+        val scale = p.width / 2000f * when (c.captionStyle) { CaptionStyle.Bold -> 1.6f; CaptionStyle.Pop -> 1.3f; CaptionStyle.Subtitle -> 0.8f; CaptionStyle.Box -> 1f }
+        val y = when (position) { 1 -> 0.65f; 2 -> if (c.captionStyle == CaptionStyle.Subtitle) -0.8f else -0.65f; else -> 0f }
+        return OverlaySettings.Builder().setScale(scale, scale).setBackgroundFrameAnchor(0f, y).build()
+    }
+
+    fun styled(raw: String, c: StudioClip): SpannableString {
         val width = if (c.captionStyle == CaptionStyle.Subtitle) 34 else 22
-        val wrapped = c.title.lineSequence().flatMap { line -> wrap(line, width).asSequence() }.joinToString("\n")
+        val wrapped = raw.lineSequence().flatMap { line -> wrap(line, width).asSequence() }.joinToString("\n")
         val color = 0xFF000000.toInt() or c.captionColor
         val text = SpannableString(wrapped).apply {
             setSpan(ForegroundColorSpan(color), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -63,9 +73,7 @@ object StudioEffects {
             }
             setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        val scale = p.width / 2000f * when (c.captionStyle) { CaptionStyle.Bold -> 1.6f; CaptionStyle.Pop -> 1.3f; CaptionStyle.Subtitle -> 0.8f; CaptionStyle.Box -> 1f }
-        val y = when (c.titlePosition) { 1 -> 0.65f; 2 -> if (c.captionStyle == CaptionStyle.Subtitle) -0.8f else -0.65f; else -> 0f }
-        return TextOverlay.createStaticTextOverlay(text, OverlaySettings.Builder().setScale(scale, scale).setBackgroundFrameAnchor(0f, y).build())
+        return text
     }
 
     /** Breaks a line at spaces so captions never split a word. */
@@ -141,4 +149,21 @@ object Fades {
         if (outFrames > 0 && total > 0 && frame > total - outFrames) g = minOf(g, ((total - frame).toFloat() / outFrames).coerceAtLeast(0f))
         return g
     }
+}
+
+/**
+ * Speech captions that change with time, at the bottom unless the title already sits there. Frames may carry times from the
+ * clip's start or from the file's start depending on the pipeline, so the first frame seen decides which.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+class SpeechCaptions(private val c: StudioClip, p: StudioProject) : TextOverlay() {
+    private val overlay = StudioEffects.settings(c, p, if (c.title.isNotBlank() && c.titlePosition == 2) 1 else 2)
+    private var offsetMs: Long? = null
+    private val blank = SpannableString(" ")
+    override fun getText(presentationTimeUs: Long): SpannableString {
+        val ms = presentationTimeUs / 1000
+        val offset = offsetMs ?: (if (c.startMs > 0 && kotlin.math.abs(ms - c.startMs) < 400) 0L else c.startMs).also { offsetMs = it }
+        return app.ultimate.speech.Captions.at(c.captions, ms + offset)?.let { StudioEffects.styled(it, c) } ?: blank
+    }
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = overlay
 }

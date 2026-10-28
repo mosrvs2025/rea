@@ -1,5 +1,6 @@
 package app.ultimate.checkup.ui
 
+import androidx.compose.foundation.shape.CircleShape
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -270,6 +271,7 @@ private fun Results(scan: Scan, manager: CheckupManager) {
     val apps = scan.apps.associateBy { it.packageName }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { ScoreHero(scan) }
+        item { ChangesCard(manager) }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(filter == null, { filter = null }, { Text("All ${scan.findings.count { it.severity != Severity.Good }}") })
@@ -637,4 +639,25 @@ private fun open(context: Context, fix: Fix) {
         is Fix.AppSettings -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", fix.packageName, null))
     }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }.onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+}
+
+/** What is different since the previous checkup, worst first; the point of checking regularly. */
+@Composable
+private fun ChangesCard(manager: CheckupManager) {
+    val changes by manager.changes.collectAsStateWithLifecycle()
+    val (since, list) = changes ?: return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Since ${app.ultimate.core.relativeTime(since)}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (list.isEmpty()) Text("Nothing changed. Same apps, same access.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            list.take(12).forEach { c ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(if (c.bad) MaterialTheme.colorScheme.error else GOOD))
+                    Spacer(Modifier.width(10.dp))
+                    Text(c.text, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            if (list.size > 12) Text("and ${list.size - 12} more", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
 }

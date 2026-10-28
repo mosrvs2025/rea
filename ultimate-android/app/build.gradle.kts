@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.17.0"
+        versionCode = 14
+        versionName = "1.18.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -38,6 +38,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "true")
             buildConfigField("boolean", "HAS_PHOTOS", "true")
             buildConfigField("boolean", "HAS_PROMPTER", "true")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -57,6 +59,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "true")
             buildConfigField("boolean", "HAS_PHOTOS", "true")
             buildConfigField("boolean", "HAS_PROMPTER", "true")
+            buildConfigField("boolean", "HAS_SEND", "true")
+            buildConfigField("boolean", "HAS_SCREENTIME", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -75,6 +79,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "false")
             buildConfigField("boolean", "HAS_PHOTOS", "false")
             buildConfigField("boolean", "HAS_PROMPTER", "false")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -93,6 +99,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "false")
             buildConfigField("boolean", "HAS_PHOTOS", "false")
             buildConfigField("boolean", "HAS_PROMPTER", "false")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -111,6 +119,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "false")
             buildConfigField("boolean", "HAS_PHOTOS", "false")
             buildConfigField("boolean", "HAS_PROMPTER", "false")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -129,6 +139,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "false")
             buildConfigField("boolean", "HAS_PHOTOS", "false")
             buildConfigField("boolean", "HAS_PROMPTER", "false")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -147,6 +159,8 @@ android {
             buildConfigField("boolean", "HAS_RECORDER", "false")
             buildConfigField("boolean", "HAS_PHOTOS", "false")
             buildConfigField("boolean", "HAS_PROMPTER", "false")
+            buildConfigField("boolean", "HAS_SEND", "false")
+            buildConfigField("boolean", "HAS_SCREENTIME", "false")
         }
     }
 
@@ -191,6 +205,8 @@ android.sourceSets {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

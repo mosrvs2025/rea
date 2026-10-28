@@ -15,7 +15,7 @@ sealed interface Route {
 }
 
 /** Files shared into the app that more than one tool could handle; the user picks. */
-data class Incoming(val uris: List<Uri>, val candidates: List<Tool>)
+data class Incoming(val uris: List<Uri>, val mime: String, val candidates: List<Tool>)
 
 /** Where the user is: Home, the Library, or inside a tool. Lives for the whole process so a share never loses its place. */
 class Shell(private val tools: List<Tool>, private val insights: app.ultimate.insights.InsightsStore? = null) {
@@ -74,8 +74,9 @@ class Shell(private val tools: List<Tool>, private val insights: app.ultimate.in
         val candidates = tools.filter { t -> t.acceptedMimePrefixes.any { type.startsWith(it) } }
         when (candidates.size) {
             0 -> Unit
-            1 -> open(candidates.first(), ToolLaunch(uris))
-            else -> _incoming.value = Incoming(uris, candidates)
+            // A one-tool edition has nothing to choose between; the full app offers what it can do with the file.
+            1 -> if (tools.size == 1) open(candidates.first(), ToolLaunch(uris)) else _incoming.value = Incoming(uris, type, candidates)
+            else -> _incoming.value = Incoming(uris, type, candidates)
         }
     }
 

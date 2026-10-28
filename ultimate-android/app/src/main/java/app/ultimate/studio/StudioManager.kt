@@ -40,6 +40,34 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
         } catch (e: Exception) { error.value = "Could not load Studio: ${e.message}" }
         finally { loading.value = false }
     } }
+    /** Progress line while speech is being turned into captions, or null. */
+    val captioning = MutableStateFlow<String?>(null)
+    private var captionJob: kotlinx.coroutines.Job? = null
+
+    /** Writes timed captions from what is said in [clipIds] (each clip's trimmed part), on the phone. */
+    fun autoCaption(clipIds: List<String>) {
+        if (captioning.value != null) return
+        val transcriber = app.ultimate.speech.Transcriber(context)
+        transcriber.unavailableReason()?.let { error.value = it; return }
+        captionJob = scope.launch {
+            try {
+                clipIds.forEachIndexed { i, id ->
+                    val clip = project.value.clips.firstOrNull { it.id == id } ?: return@forEachIndexed
+                    captioning.value = "Listening to clip ${i + 1} of ${clipIds.size}…"
+                    val segments = transcriber.transcribe(android.net.Uri.parse(clip.uri), clip.startMs, clip.endMs) { f ->
+                        captioning.value = "Listening to clip ${i + 1} of ${clipIds.size} · ${(f * 100).toInt()}%"
+                    }
+                    edit { p -> p.copy(clips = p.clips.map { if (it.id == id) it.copy(captions = segments) else it }) }
+                }
+                status.value = "Captions added. Style them in Text."
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (e: Exception) { error.value = e.message ?: "Captions couldn't be made"
+            } finally { captioning.value = null }
+        }
+    }
+
+    fun cancelCaptions() { captionJob?.cancel() }
+
     fun edit(change: (StudioProject) -> StudioProject) {
         if (loading.value || work.value.active) return
         try {

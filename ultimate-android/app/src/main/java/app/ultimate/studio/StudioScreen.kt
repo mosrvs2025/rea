@@ -1,5 +1,7 @@
 package app.ultimate.studio
 
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.rounded.ClosedCaption
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.animateColorAsState
 import android.content.Intent
@@ -284,7 +286,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
                             Panel.Volume -> clip?.let { c -> VolumePanel(c) { v -> change(c.id) { it.copy(volume = v) } } }
                             Panel.Filters -> clip?.let { c -> FiltersPanel(c, onPick = { look -> change(c.id) { it.copy(look = look) } }, onAll = { look -> manager.edit { p -> p.copy(clips = p.clips.map { it.copy(look = look) }) } }) }
                             Panel.Adjust -> clip?.let { c -> AdjustPanel(c, onBrightness = { v -> change(c.id) { it.copy(brightness = v) } }, onRotate = { stop(); change(c.id) { it.copy(rotation = (it.rotation + 90) % 360) } }) }
-                            Panel.Text -> clip?.let { c -> TextPanel(c, onText = { t -> change(c.id) { it.copy(title = t) } }, onPosition = { pos -> change(c.id) { it.copy(titlePosition = pos) } }, onStyle = { st, col -> change(c.id) { it.copy(captionStyle = st, captionColor = col) } }) }
+                            Panel.Text -> clip?.let { c -> TextPanel(c, manager, onText = { t -> change(c.id) { it.copy(title = t) } }, onPosition = { pos -> change(c.id) { it.copy(titlePosition = pos) } }, onStyle = { st, col -> change(c.id) { it.copy(captionStyle = st, captionColor = col) } }) }
                             Panel.Audio -> AudioPanel(project, playhead, manager, busy, onPick = { stop(); music.launch(arrayOf("audio/*", "video/*")) })
                             Panel.Format -> FormatPanel(project, busy, manager)
                             null -> Unit
@@ -808,7 +810,7 @@ private fun AdjustPanel(c: StudioClip, onBrightness: (Float) -> Unit, onRotate: 
 }
 
 @Composable
-private fun TextPanel(c: StudioClip, onText: (String) -> Unit, onPosition: (Int) -> Unit, onStyle: (CaptionStyle, Int) -> Unit) {
+private fun TextPanel(c: StudioClip, manager: StudioManager, onText: (String) -> Unit, onPosition: (Int) -> Unit, onStyle: (CaptionStyle, Int) -> Unit) {
     // Typed text is kept locally and saved after a short pause, so each key is not its own undo step.
     var draft by remember(c.id) { mutableStateOf(c.title) }
     LaunchedEffect(draft) { delay(500); if (draft != c.title) onText(draft) }
@@ -817,6 +819,21 @@ private fun TextPanel(c: StudioClip, onText: (String) -> Unit, onPosition: (Int)
         listOf("Middle", "Top", "Bottom").forEachIndexed { i, label -> FilterChip(c.titlePosition == i, { onPosition(i) }, { Text(label) }) }
         if (c.title.isNotEmpty()) TextButton({ draft = ""; onText("") }) { Text("Remove") }
     }
+    // Captions from speech, made on the phone; they follow the style and colour below.
+    val captioning by manager.captioning.collectAsStateWithLifecycle()
+    val project by manager.project.collectAsStateWithLifecycle()
+    androidx.compose.animation.AnimatedContent(captioning, label = "captions") { busy ->
+        if (busy != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(10.dp))
+            Text(busy, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton(manager::cancelCaptions) { Text("Stop") }
+        } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            FilledTonalButton({ manager.autoCaption(listOf(c.id)) }) { Icon(Icons.Rounded.ClosedCaption, null); Spacer(Modifier.width(6.dp)); Text(if (c.captions.isEmpty()) "Auto captions" else "Redo captions") }
+            if (project.clips.size > 1) OutlinedButton({ manager.autoCaption(project.clips.map { it.id }) }) { Text("All clips") }
+            if (c.captions.isNotEmpty()) TextButton({ manager.edit { p -> p.copy(clips = p.clips.map { if (it.id == c.id) it.copy(captions = emptyList()) else it }) } }) { Text("Clear") }
+        }
+    }
+    if (c.captions.isNotEmpty()) Text("${c.captions.size} captions from speech · \"${c.captions.first().text.take(40)}…\"", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         CaptionStyle.entries.forEach { st -> FilterChip(c.captionStyle == st, { onStyle(st, c.captionColor) }, { Text(st.label) }) }
     }

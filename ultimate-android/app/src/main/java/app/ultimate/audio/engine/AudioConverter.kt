@@ -511,6 +511,30 @@ class AudioConverter(private val context: Context) {
         }
     }
 
+    /**
+     * Decodes [startMs]..[endMs] of any file with sound to 16 kHz mono 16-bit PCM, the form speech recognisers take.
+     * Capped at [maxMs] so a long film cannot exhaust memory.
+     */
+    suspend fun speechPcm(uri: Uri, source: AudioSource, startMs: Long, endMs: Long, maxMs: Long = 20 * 60_000L, onProgress: (Float) -> Unit = {}): ShortArray = withContext(Dispatchers.IO) {
+        val end = minOf(if (endMs > 0) endMs else source.durationMs, startMs + maxMs)
+        val out = java.io.ByteArrayOutputStream()
+        var mixer: PcmMixer? = null
+        var from = 0 to 0
+        val bytes = ByteArray(8192 * 2)
+        decode(uri, source, AudioSettings(trimStartMs = startMs, trimEndMs = end), onProgress) { pcm, count, rate, channels ->
+            if (mixer == null || from != (rate to channels)) { mixer = PcmMixer(channels, 1, rate, 16_000); from = rate to channels }
+            val (m, n) = mixer!!.process(pcm, count)
+            var k = 0
+            while (k < n) {
+                val chunk = minOf(n - k, bytes.size / 2)
+                for (j in 0 until chunk) { val v = m[k + j].toInt(); bytes[j * 2] = v.toByte(); bytes[j * 2 + 1] = (v shr 8).toByte() }
+                out.write(bytes, 0, chunk * 2); k += chunk
+            }
+        }
+        val raw = out.toByteArray()
+        ShortArray(raw.size / 2) { i -> ((raw[i * 2].toInt() and 0xFF) or (raw[i * 2 + 1].toInt() shl 8)).toShort() }
+    }
+
     private fun displayName(uri: Uri): String? = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
         ?.use { if (it.moveToFirst()) it.getString(0) else null }
 

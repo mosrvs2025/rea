@@ -26,6 +26,8 @@ data class StudioClip(
     val speed: Float = 1f, val volume: Float = 1f, val look: Look = Look.Natural,
     val brightness: Float = 0f, val rotation: Int = 0, val title: String = "", val titlePosition: Int = 0,
     val captionStyle: CaptionStyle = CaptionStyle.Box, val captionColor: Int = 0xFFFFFF,
+    /** Timed captions from speech, in the source file's milliseconds; shown with the clip's caption style. */
+    val captions: List<app.ultimate.speech.Segment> = emptyList(),
 ) { val durationMs: Long get() = ((endMs - startMs) / speed.toDouble()).roundToLong() }
 data class StudioMusic(val uri: String, val name: String, val durationMs: Long, val startMs: Long = 0, val volume: Float = 0.5f)
 data class StudioProject(
