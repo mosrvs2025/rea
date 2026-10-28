@@ -28,7 +28,7 @@ class AudioController(private val app: UltimateApp) {
     val queue = manager.state
 
     /** A short before/after render of the single picked file; its own converter so it never touches a running job. */
-    data class Preview(val original: Uri? = null, val edited: Uri? = null, val rendering: Boolean = false, val error: String? = null)
+    data class Preview(val original: Uri? = null, val edited: Uri? = null, val originalPeaks: List<Float> = emptyList(), val editedPeaks: List<Float> = emptyList(), val rendering: Boolean = false, val error: String? = null)
     val preview = MutableStateFlow(Preview())
     private val previewer = AudioConverter(app)
     private var previewJob: Job? = null
@@ -46,7 +46,7 @@ class AudioController(private val app: UltimateApp) {
             preview.value = runCatching {
                 val a = previewer.preview(input, base, File(dir, "original-$stamp.wav"))
                 val b = previewer.preview(input, s, File(dir, "edited-$stamp.wav"))
-                Preview(Uri.fromFile(a), Uri.fromFile(b))
+                Preview(Uri.fromFile(a.first), Uri.fromFile(b.first), a.second, b.second)
             }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else Preview(error = it.message ?: "Preview failed") }
         }
     }

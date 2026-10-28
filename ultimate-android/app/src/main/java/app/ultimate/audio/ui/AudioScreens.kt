@@ -384,14 +384,15 @@ private fun PreviewCard(preview: AudioController.Preview, settings: AudioSetting
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("20 seconds from the start, original against edited.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Flip between original and edited while it plays.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (preview.rendering) CircularProgressIndicator(Modifier.size(24.dp))
                 else FilledTonalButton(onPreview, enabled = settings.shaped || settings.speed != 1f) { Text(if (preview.edited == null) "Listen" else "Refresh") }
             }
             preview.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            preview.original?.let { Text("Original", style = MaterialTheme.typography.labelLarge); AudioPlayerBar(it, emptyList()) }
-            preview.edited?.let { Text("Edited", style = MaterialTheme.typography.labelLarge); AudioPlayerBar(it, emptyList()) }
+            if (preview.original != null && preview.edited != null) {
+                app.ultimate.core.AbPlayer(preview.original, preview.edited, preview.originalPeaks, preview.editedPeaks, "Original", "Edited")
+            }
         }
     }
 }

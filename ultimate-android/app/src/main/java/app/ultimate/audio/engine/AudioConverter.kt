@@ -172,16 +172,15 @@ class AudioConverter(private val context: Context) {
      * Renders [lengthMs] from the trim start of one input to a WAV in [out], with [settings] applied, for a quick before/after
      * listen. Nothing is added to the user's music.
      */
-    suspend fun preview(input: ConvertInput, settings: AudioSettings, out: java.io.File, lengthMs: Long = 20_000): java.io.File = withContext(Dispatchers.IO) {
+    suspend fun preview(input: ConvertInput, settings: AudioSettings, out: java.io.File, lengthMs: Long = 20_000): Pair<java.io.File, List<Float>> = withContext(Dispatchers.IO) {
         val start = settings.trimStartMs.coerceAtLeast(0)
         val end = (if (settings.trimEndMs > 0) settings.trimEndMs else input.source.durationMs).coerceAtMost(start + (lengthMs * settings.speed).toLong())
         val s = settings.copy(format = OutFormat.Wav, trimStartMs = start, trimEndMs = end, join = false)
         this@AudioConverter.log = JobLog()
         val outMs = AudioPlanner.outputMs(input.source, s)
         ParcelFileDescriptor.open(out, ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE).use { fd ->
-            transcode(listOf(input), s, outMs, fd) { _, _ -> }
+            out to transcode(listOf(input), s, outMs, fd) { _, _ -> }.peaks
         }
-        out
     }
 
     /** Where PCM goes to become a file. */
