@@ -1,5 +1,6 @@
 package app.ultimate.studio
 
+import app.ultimate.R
 import android.content.Context
 import android.net.Uri
 import app.ultimate.core.*
@@ -25,6 +26,8 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
     val canRedo get() = history.canRedo
     private var saveJob: Job? = null
     private var exportJob: Job? = null
+    override val notifyIcon = R.drawable.ic_stat_studio
+    override val notifyColor = 0xFFAD1457.toInt()
     override val workId = "studio"
     override val workTitle = "Studio"
     override val log = JobLog()
@@ -121,7 +124,7 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
                         catch(e: Exception) { error.value = "Film saved to Movies/Ultimate Studio, but its Library entry could not be saved: ${e.message}" }
                         log.ok("Saved ${result.name} · ${formatBytes(result.bytes)}")
                         committed = true
-                        mutableWork.value = WorkSnapshot(doneTitle = "Studio export ready", doneText = result.name)
+                        mutableWork.value = WorkSnapshot(doneTitle = "${result.name} is ready", doneText = "Saved to Movies/Ultimate Studio. Tap to watch or share it.")
                     }
                 }
             } catch(e: CancellationException) {

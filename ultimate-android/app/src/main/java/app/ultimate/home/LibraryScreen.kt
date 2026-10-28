@@ -31,6 +31,10 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -89,7 +93,9 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
     var sheet by remember { mutableStateOf<LibraryItem?>(null) }
     LaunchedEffect(Unit) { app.tools.forEach { it.refresh() } }
     val seen = remember { mutableSetOf<Any>() }
-    val shown = all.filter { filter == null || it.toolId == filter }.sortedByDescending { it.createdAt }
+    var filterMenu by remember { mutableStateOf(false) }
+    var bySize by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val shown = all.filter { filter == null || it.toolId == filter }.sortedByDescending { if (bySize) it.bytes else it.createdAt }
 
     LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
@@ -100,9 +106,31 @@ fun LibraryScreen(app: UltimateApp, pad: PaddingValues) {
             )
         }
         item {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(filter == null, { app.shell.setLibraryFilter(null) }, { Text("All") })
-                app.tools.forEach { t -> FilterChip(filter == t.id, { app.shell.setLibraryFilter(t.id) }, { Text(t.title) }, leadingIcon = { Icon(t.icon, null, Modifier.size(16.dp)) }) }
+            // One compact control instead of a row of chips to scroll through.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box {
+                    val current = app.tools.firstOrNull { it.id == filter }
+                    FilledTonalButton({ filterMenu = true }) {
+                        Icon(current?.icon ?: Icons.Rounded.VideoLibrary, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(current?.title ?: "All tools")
+                        Icon(Icons.Rounded.ArrowDropDown, null)
+                    }
+                    DropdownMenu(filterMenu, { filterMenu = false }) {
+                        DropdownMenuItem({ Text("All tools · ${all.size}") }, { app.shell.setLibraryFilter(null); filterMenu = false }, leadingIcon = { Icon(Icons.Rounded.VideoLibrary, null) })
+                        app.tools.forEach { t ->
+                            val n = all.count { it.toolId == t.id }
+                            DropdownMenuItem(
+                                { Text("${t.title} · $n") }, { app.shell.setLibraryFilter(t.id); filterMenu = false },
+                                leadingIcon = { Icon(t.icon, null) }, enabled = n > 0 || filter == t.id,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton({ bySize = !bySize }) {
+                    Icon(Icons.AutoMirrored.Rounded.Sort, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (bySize) "Largest" else "Newest")
+                }
             }
         }
         if (shown.isEmpty()) {

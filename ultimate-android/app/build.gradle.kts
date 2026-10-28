@@ -12,8 +12,8 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.16.0"
+        versionCode = 13
+        versionName = "1.17.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -35,6 +35,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "true")
+            buildConfigField("boolean", "HAS_RECORDER", "true")
+            buildConfigField("boolean", "HAS_PHOTOS", "true")
+            buildConfigField("boolean", "HAS_PROMPTER", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -51,6 +54,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "true")
             buildConfigField("boolean", "HAS_NETWORK", "true")
             buildConfigField("boolean", "HAS_SENSORS", "true")
+            buildConfigField("boolean", "HAS_RECORDER", "true")
+            buildConfigField("boolean", "HAS_PHOTOS", "true")
+            buildConfigField("boolean", "HAS_PROMPTER", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -66,6 +72,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "false")
+            buildConfigField("boolean", "HAS_RECORDER", "false")
+            buildConfigField("boolean", "HAS_PHOTOS", "false")
+            buildConfigField("boolean", "HAS_PROMPTER", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -81,6 +90,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "false")
+            buildConfigField("boolean", "HAS_RECORDER", "false")
+            buildConfigField("boolean", "HAS_PHOTOS", "false")
+            buildConfigField("boolean", "HAS_PROMPTER", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -96,6 +108,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "false")
+            buildConfigField("boolean", "HAS_RECORDER", "false")
+            buildConfigField("boolean", "HAS_PHOTOS", "false")
+            buildConfigField("boolean", "HAS_PROMPTER", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -111,6 +126,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "false")
+            buildConfigField("boolean", "HAS_RECORDER", "false")
+            buildConfigField("boolean", "HAS_PHOTOS", "false")
+            buildConfigField("boolean", "HAS_PROMPTER", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -126,6 +144,9 @@ android {
             buildConfigField("boolean", "HAS_AI", "false")
             buildConfigField("boolean", "HAS_NETWORK", "false")
             buildConfigField("boolean", "HAS_SENSORS", "false")
+            buildConfigField("boolean", "HAS_RECORDER", "false")
+            buildConfigField("boolean", "HAS_PHOTOS", "false")
+            buildConfigField("boolean", "HAS_PROMPTER", "false")
         }
     }
 
@@ -186,6 +207,12 @@ dependencies {
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // Teleprompter: camera preview and recording.
+    val camerax = "1.4.1"
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
 
     // Pure-Java port of the LAME MP3 encoder (LGPL 2.1+). See app/src/main/java/javax/sound for the Android shim it needs.
     implementation("de.sciss:jump3r:1.0.5")

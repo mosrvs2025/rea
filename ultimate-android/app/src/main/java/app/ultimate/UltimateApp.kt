@@ -55,11 +55,17 @@ class UltimateApp : Application() {
     val trafficManager: TrafficManager by lazy { TrafficManager(this) }
 
     val studioManager: StudioManager by lazy { StudioManager(this, work) }
+    val recorder by lazy { app.ultimate.recorder.RecorderManager(this) }
+    val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
+    val prompter by lazy { app.ultimate.prompter.PrompterStore(this) }
 
     val tools: List<Tool> by lazy {
         buildList {
             if (BuildConfig.HAS_CHECKUP) add(app.ultimate.checkup.CheckupTool(checkupManager))
             if (BuildConfig.HAS_STUDIO) add(StudioTool(studioManager))
+            if (BuildConfig.HAS_RECORDER) add(app.ultimate.recorder.RecorderTool(recorder))
+            if (BuildConfig.HAS_PHOTOS) add(app.ultimate.photos.PhotosTool(photos))
+            if (BuildConfig.HAS_PROMPTER) add(app.ultimate.prompter.PrompterTool(prompter))
             if (BuildConfig.HAS_SQUEEZE) add(SqueezeTool(this@UltimateApp))
             if (BuildConfig.HAS_AUDIO) add(AudioTool(this@UltimateApp))
             if (BuildConfig.HAS_PLUCK) add(PluckTool(this@UltimateApp))
@@ -80,5 +86,7 @@ class UltimateApp : Application() {
         if (BuildConfig.HAS_AUDIO) work.register(audioManager)
         if (BuildConfig.HAS_TRAFFIC) work.register(trafficManager)
         if (BuildConfig.HAS_STUDIO) work.register(studioManager)
+        if (BuildConfig.HAS_CHECKUP) work.register(checkupManager)
+        if (BuildConfig.HAS_PHOTOS) work.register(photos)
     }
 }

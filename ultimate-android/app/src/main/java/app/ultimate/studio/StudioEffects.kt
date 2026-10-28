@@ -44,20 +44,44 @@ object StudioEffects {
         }
         if (c.brightness != 0f) add(Brightness(c.brightness))
         add(Presentation.createForWidthAndHeight(p.width, p.height, if (p.fillCanvas) Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP else Presentation.LAYOUT_SCALE_TO_FIT))
-        if (c.title.isNotBlank()) {
-            val wrapped = c.title.lineSequence().flatMap { line -> line.chunked(26).asSequence() }.joinToString("\n")
-            val text = SpannableString(wrapped).apply {
-                setSpan(ForegroundColorSpan(Color.WHITE), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                setSpan(BackgroundColorSpan(0xA6000000.toInt()), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            val y = when(c.titlePosition) { 1 -> 0.65f; 2 -> -0.65f; else -> 0f }
-            val settings = OverlaySettings.Builder().setScale(p.width / 2000f, p.width / 2000f).setBackgroundFrameAnchor(0f, y).build()
-            add(OverlayEffect(ImmutableList.of<TextureOverlay>(TextOverlay.createStaticTextOverlay(text, settings))))
-        }
+        if (c.title.isNotBlank()) add(OverlayEffect(ImmutableList.of<TextureOverlay>(caption(c, p))))
         if (exporting && c.speed != 1f) add(SpeedChangeEffect(c.speed))
         if (exporting) add(FrameDropEffect.createDefaultFrameDropEffect(30f))
     }
+    /** The caption as a text overlay, styled and placed as chosen; preview and export share it. */
+    fun caption(c: StudioClip, p: StudioProject): TextOverlay {
+        val width = if (c.captionStyle == CaptionStyle.Subtitle) 34 else 22
+        val wrapped = c.title.lineSequence().flatMap { line -> wrap(line, width).asSequence() }.joinToString("\n")
+        val color = 0xFF000000.toInt() or c.captionColor
+        val text = SpannableString(wrapped).apply {
+            setSpan(ForegroundColorSpan(color), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            when (c.captionStyle) {
+                CaptionStyle.Box -> setSpan(BackgroundColorSpan(0xA6000000.toInt()), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                CaptionStyle.Subtitle -> setSpan(BackgroundColorSpan(0x80000000.toInt()), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                CaptionStyle.Pop -> setSpan(BackgroundColorSpan(0xE6111111.toInt()), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                CaptionStyle.Bold -> Unit
+            }
+            setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        val scale = p.width / 2000f * when (c.captionStyle) { CaptionStyle.Bold -> 1.6f; CaptionStyle.Pop -> 1.3f; CaptionStyle.Subtitle -> 0.8f; CaptionStyle.Box -> 1f }
+        val y = when (c.titlePosition) { 1 -> 0.65f; 2 -> if (c.captionStyle == CaptionStyle.Subtitle) -0.8f else -0.65f; else -> 0f }
+        return TextOverlay.createStaticTextOverlay(text, OverlaySettings.Builder().setScale(scale, scale).setBackgroundFrameAnchor(0f, y).build())
+    }
+
+    /** Breaks a line at spaces so captions never split a word. */
+    fun wrap(line: String, width: Int): List<String> {
+        if (line.length <= width) return listOf(line)
+        val out = mutableListOf<String>(); var cur = StringBuilder()
+        line.split(' ').forEach { w ->
+            if (cur.isNotEmpty() && cur.length + 1 + w.length > width) { out += cur.toString(); cur = StringBuilder() }
+            if (cur.isNotEmpty()) cur.append(' ')
+            cur.append(w)
+            while (cur.length > width) { out += cur.substring(0, width); cur = StringBuilder(cur.substring(width)) }
+        }
+        if (cur.isNotEmpty()) out += cur.toString()
+        return out
+    }
+
     fun audio(speed: Float, volume: Float): List<AudioProcessor> = buildList {
         if (speed != 1f) add(SonicAudioProcessor().apply { setSpeed(speed); setPitch(1f) })
         if (volume != 1f) add(GainProcessor(volume))
@@ -78,5 +102,43 @@ class GainProcessor(private val gain: Float) : BaseAudioProcessor() {
         if (inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT) while (inputBuffer.remaining() >= 4) out.putFloat((inputBuffer.float * gain).coerceIn(-1f, 1f))
         else while (inputBuffer.remaining() >= 2) out.putShort((inputBuffer.short * gain).toInt().coerceIn(-32768, 32767).toShort())
         out.flip()
+    }
+}
+
+/** Fades a whole film's mixed sound in from silence and out to silence at its end. */
+@androidx.annotation.OptIn(UnstableApi::class)
+class FadeProcessor(private val fadeInMs: Long, private val fadeOutMs: Long, private val totalMs: Long) : BaseAudioProcessor() {
+    private var frame = 0L
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT)
+            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+        return inputAudioFormat
+    }
+    override fun onFlush() { frame = 0 }
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        val fmt = inputAudioFormat
+        val rate = fmt.sampleRate.toLong(); val ch = fmt.channelCount
+        val inFrames = fadeInMs * rate / 1000; val outFrames = fadeOutMs * rate / 1000; val total = totalMs * rate / 1000
+        val out = replaceOutputBuffer(inputBuffer.remaining())
+        val float = fmt.encoding == C.ENCODING_PCM_FLOAT
+        val frameBytes = ch * if (float) 4 else 2
+        while (inputBuffer.remaining() >= frameBytes) {
+            val g = Fades.gain(frame, inFrames, outFrames, total)
+            repeat(ch) {
+                if (float) out.putFloat(inputBuffer.float * g) else out.putShort((inputBuffer.short * g).toInt().toShort())
+            }
+            frame++
+        }
+        out.flip()
+    }
+}
+
+object Fades {
+    /** Linear gain for [frame] of [total], rising over [inFrames] and falling over the last [outFrames]. */
+    fun gain(frame: Long, inFrames: Long, outFrames: Long, total: Long): Float {
+        var g = 1f
+        if (inFrames > 0 && frame < inFrames) g = minOf(g, frame.toFloat() / inFrames)
+        if (outFrames > 0 && total > 0 && frame > total - outFrames) g = minOf(g, ((total - frame).toFloat() / outFrames).coerceAtLeast(0f))
+        return g
     }
 }

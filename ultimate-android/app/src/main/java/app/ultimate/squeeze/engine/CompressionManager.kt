@@ -1,5 +1,6 @@
 package app.ultimate.squeeze.engine
 
+import app.ultimate.R
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -66,6 +67,8 @@ class CompressionManager(private val app: Context, private val library: LibraryS
     private val _state = MutableStateFlow(QueueState())
     val state: StateFlow<QueueState> = _state.asStateFlow()
 
+    override val notifyIcon = R.drawable.ic_stat_squeeze
+    override val notifyColor = 0xFF00897B.toInt()
     override val workId = "squeeze"
     override val workTitle = "Squeeze"
     override val log = JobLog()
@@ -87,8 +90,8 @@ class CompressionManager(private val app: Context, private val library: LibraryS
         if (s.jobs.isEmpty()) return WorkSnapshot()
         val done = s.jobs.count { it.status is Status.Done }
         return WorkSnapshot(
-            doneTitle = "Squeeze finished",
-            doneText = if (done == 0) "Nothing needed compressing" else "$done saved · ${formatBytes(s.savedBytes)} freed",
+            doneTitle = if (done == 0) "Squeeze finished" else "${formatBytes(s.savedBytes)} freed",
+            doneText = if (done == 0) "Nothing needed compressing" else s.jobs.filter { it.status is Status.Done }.joinToString(limit = 3) { it.name } + " · $done video${if (done == 1) "" else "s"} smaller",
         )
     }
     private var runner: Job? = null

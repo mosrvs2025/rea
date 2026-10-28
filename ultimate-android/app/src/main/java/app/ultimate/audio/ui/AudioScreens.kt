@@ -89,6 +89,12 @@ import app.ultimate.audio.model.AudioSettings
 import app.ultimate.audio.model.AudioSource
 import app.ultimate.audio.model.OutFormat
 import app.ultimate.core.AudioPlayerBar
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.foundation.clickable
+import app.ultimate.core.pressScale
+import app.ultimate.core.appear
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.rounded.Movie
 import app.ultimate.core.BackBar
 import app.ultimate.core.JobLog
 import app.ultimate.core.Terminal
@@ -130,14 +136,14 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
             picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onAddAudio = onPickAudio, onRemove = c::remove, onMoveUp = c::moveUp,
             preview = preview, onPreview = c::renderPreview, onBack = c::clear, onStart = { withConsent { c.start() } },
         )
-        else -> HomeScreen(tool, onPick, onPickAudio, onExit)
+        else -> HomeScreen(tool, onPick, onPickAudio, onExit, onTemplate = { t -> c.applyTemplate(t); if (t.audioFiles) onPickAudio() else onPick() })
     }
 }
 
 // ───────────────────────────── Home ─────────────────────────────
 
 @Composable
-private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onPickAudio: () -> Unit, onExit: () -> Unit) {
+private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onPickAudio: () -> Unit, onExit: () -> Unit, onTemplate: (app.ultimate.audio.model.AudioTemplate) -> Unit) {
     BackHandler(onBack = onExit)
     val phase by rememberInfiniteTransition(label = "wave").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "phase")
     val demo = remember(phase) {
@@ -171,6 +177,25 @@ private fun HomeScreen(tool: app.ultimate.core.Tool, onPick: () -> Unit, onPickA
             }
             Spacer(Modifier.height(20.dp))
             RecentResults(tool, "Recent conversions", onOpenOwn = {}, limit = 6)
+            Spacer(Modifier.height(12.dp))
+            Text("Quick starts", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
+            val seen = remember { mutableSetOf<Any>() }
+            app.ultimate.audio.model.AudioTemplates.all.forEachIndexed { i, t ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp).appear(t.title, seen, i).pressScale(0.97f).clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow).clickable { onTemplate(t) }.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(if (t.audioFiles) Icons.Rounded.MusicNote else Icons.Rounded.Movie, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(t.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(t.blurb, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.outline)
+                }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -196,6 +221,13 @@ private fun ConfigureScreen(
 ) {
     BackHandler(onBack = onBack)
     val usable = picked.filter { it.audio != null }
+    // The preview follows every change by itself, a moment after the last one, so the waveform always shows the sound as set.
+    val soundKey = listOf(settings.pitch, settings.bassDb, settings.trebleDb, settings.highCutHz, settings.fadeInMs, settings.fadeOutMs, settings.normalize, settings.speed, settings.trimStartMs, settings.trimEndMs, settings.mono)
+    LaunchedEffect(soundKey, usable.size == 1, usable.firstOrNull()?.uri) {
+        if (usable.size != 1) return@LaunchedEffect
+        kotlinx.coroutines.delay(if (preview.edited == null) 0 else 700)
+        onPreview()
+    }
     val single = usable.size == 1
     val joining = settings.join && usable.size > 1
     val effective = (if (single) settings else settings.copy(trimStartMs = 0, trimEndMs = -1)).copy(join = joining)
@@ -384,14 +416,21 @@ private fun PreviewCard(preview: AudioController.Preview, settings: AudioSetting
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("Flip between original and edited while it plays.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (settings.shaped || settings.speed != 1f) "Updates as you change the sound. Flip between original and edited while it plays." else "20 seconds from the start. Change the sound above and hear the difference.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                if (preview.rendering) CircularProgressIndicator(Modifier.size(24.dp))
-                else FilledTonalButton(onPreview, enabled = settings.shaped || settings.speed != 1f) { Text(if (preview.edited == null) "Listen" else "Refresh") }
+                androidx.compose.animation.AnimatedVisibility(preview.rendering) { CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp) }
             }
             preview.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             if (preview.original != null && preview.edited != null) {
-                app.ultimate.core.AbPlayer(preview.original, preview.edited, preview.originalPeaks, preview.editedPeaks, "Original", "Edited")
+                val dim by androidx.compose.animation.core.animateFloatAsState(if (preview.rendering) 0.55f else 1f, label = "rendering")
+                Box(Modifier.graphicsLayer { alpha = dim }) {
+                    app.ultimate.core.AbPlayer(preview.original, preview.edited, preview.originalPeaks, preview.editedPeaks, "Original", "Edited")
+                }
+            } else if (preview.error == null) {
+                Text("Listening to your file…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             }
         }
     }

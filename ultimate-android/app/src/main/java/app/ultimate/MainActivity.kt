@@ -11,6 +11,8 @@ import app.ultimate.core.UltimateTheme
 import app.ultimate.home.UltimateRoot
 
 class MainActivity : ComponentActivity() {
+    companion object { const val EXTRA_TOOL = "app.ultimate.TOOL" }
+
     private val ultimate get() = application as UltimateApp
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,6 +29,8 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun handleShare(intent: Intent?) {
+        // A finished-work notification names its tool, so tapping it lands there instead of on Home.
+        intent?.getStringExtra(EXTRA_TOOL)?.let { id -> ultimate.tools.firstOrNull { it.id == id }?.let { ultimate.shell.open(it) }; return }
         val uris: List<Uri> = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(
                 if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)

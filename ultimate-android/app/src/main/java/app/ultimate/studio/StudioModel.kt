@@ -4,12 +4,28 @@ import java.util.UUID
 import kotlin.math.roundToLong
 
 enum class CanvasShape(val label: String, val ratio: Float) { Portrait("9:16", 9f / 16), Landscape("16:9", 16f / 9), Square("1:1", 1f) }
+/** How a clip's caption is drawn. */
+enum class CaptionStyle(val label: String) { Box("Box"), Bold("Bold"), Subtitle("Subtitle"), Pop("Pop") }
+/** Caption colours as 0xRRGGBB. */
+val CAPTION_COLORS = listOf(0xFFFFFF, 0xFFE14D, 0x7CF0A0, 0x6EC8FF, 0xFF6E9E)
+
+/** One-tap output settings for where the film is going. */
+enum class ExportPreset(val label: String, val blurb: String, val shape: CanvasShape, val shortSide: Int, val fill: Boolean) {
+    Vertical("TikTok · Reels · Shorts", "9:16, 1080p, fills the screen", CanvasShape.Portrait, 1080, true),
+    YouTube("YouTube", "16:9, 1080p", CanvasShape.Landscape, 1080, false),
+    Square("Instagram post", "1:1, 1080p, fills the square", CanvasShape.Square, 1080, true),
+    Message("For messaging", "720p, small file", CanvasShape.Portrait, 720, false);
+    fun matches(p: StudioProject) = p.shape == shape && p.shortSide == shortSide && p.fillCanvas == fill
+    fun applyTo(p: StudioProject) = p.copy(shape = shape, shortSide = shortSide, fillCanvas = fill)
+}
+
 enum class Look(val label: String) { Natural("Natural"), Cinema("Cinema"), Warm("Warm"), Noir("Noir") }
 data class StudioClip(
     val id: String = UUID.randomUUID().toString(), val uri: String, val name: String,
     val sourceMs: Long, val startMs: Long = 0, val endMs: Long = sourceMs,
     val speed: Float = 1f, val volume: Float = 1f, val look: Look = Look.Natural,
     val brightness: Float = 0f, val rotation: Int = 0, val title: String = "", val titlePosition: Int = 0,
+    val captionStyle: CaptionStyle = CaptionStyle.Box, val captionColor: Int = 0xFFFFFF,
 ) { val durationMs: Long get() = ((endMs - startMs) / speed.toDouble()).roundToLong() }
 data class StudioMusic(val uri: String, val name: String, val durationMs: Long, val startMs: Long = 0, val volume: Float = 0.5f)
 data class StudioProject(
@@ -18,6 +34,8 @@ data class StudioProject(
     val shape: CanvasShape = CanvasShape.Portrait, val fillCanvas: Boolean = false,
     val music: StudioMusic? = null, val bpm: Int = 120, val beatOffsetMs: Long = 0,
     val shortSide: Int = 720,
+    /** Fades the whole film's sound in at the start and out at the end. */
+    val fadeInMs: Long = 0, val fadeOutMs: Long = 0,
 ) {
     val durationMs get() = clips.sumOf { it.durationMs }
     val width get() = if (shape == CanvasShape.Landscape) even(shortSide * 16 / 9) else shortSide

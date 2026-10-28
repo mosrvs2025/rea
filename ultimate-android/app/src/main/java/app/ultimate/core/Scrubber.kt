@@ -244,7 +244,7 @@ fun AudioPlayerBar(uri: Uri, peaks: List<Float>, modifier: Modifier = Modifier) 
 fun AbPlayer(a: Uri, b: Uri, peaksA: List<Float>, peaksB: List<Float>, labelA: String, labelB: String, modifier: Modifier = Modifier) {
     val pa = rememberPlayer(a)
     val pb = rememberPlayer(b)
-    var useB by remember(a, b) { mutableStateOf(true) }
+    var useB by remember { mutableStateOf(true) }
     val cur = if (useB) pb else pa
     fun pick(toB: Boolean) {
         if (toB == useB) return

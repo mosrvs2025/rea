@@ -48,6 +48,10 @@ interface WorkSource {
     fun cancelWork()
     /** Text of the notification button that calls [cancelWork]. */
     val cancelLabel: String get() = "Cancel"
+    /** Monochrome status-bar icon, so each tool's notifications are told apart at a glance. */
+    val notifyIcon: Int get() = R.drawable.ic_stat
+    /** Accent for the notification, as 0xAARRGGBB. */
+    val notifyColor: Int get() = 0xFF6750A4.toInt()
 }
 
 /** Every tool registers its work here; one foreground service keeps the process alive for all of them. */
@@ -91,7 +95,7 @@ class WorkService : Service() {
     private fun onChange(snaps: List<WorkSnapshot>) {
         val nm = getSystemService(NotificationManager::class.java)
         snaps.forEachIndexed { i, s ->
-            if (previouslyActive.getOrNull(i) == true && !s.active && s.doneTitle != null) nm.notify(DONE_ID + i, done(s))
+            if (previouslyActive.getOrNull(i) == true && !s.active && s.doneTitle != null) hub.sources.getOrNull(i)?.let { nm.notify(DONE_ID + i, done(s, it)) }
         }
         previouslyActive = snaps.map { it.active }
         if (snaps.any { it.active }) {
@@ -113,8 +117,10 @@ class WorkService : Service() {
         nm.createNotificationChannel(NotificationChannel(CH_DONE, getString(R.string.channel_done), NotificationManager.IMPORTANCE_DEFAULT))
     }
 
-    private fun open() = PendingIntent.getActivity(
-        this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+    /** Opens the app, straight into [toolId]'s screen when given. */
+    private fun open(toolId: String? = null) = PendingIntent.getActivity(
+        this, toolId?.hashCode() ?: 0,
+        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).apply { toolId?.let { putExtra(MainActivity.EXTRA_TOOL, it) } },
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
@@ -122,15 +128,18 @@ class WorkService : Service() {
         val index = snaps.indexOfFirst { it.active }.coerceAtLeast(0)
         val s = snaps.getOrNull(index) ?: WorkSnapshot(title = "Working…")
         val more = snaps.count { it.active } - 1
+        val source = hub.sources.getOrNull(index)
         val builder = NotificationCompat.Builder(this, CH_PROGRESS)
-            .setSmallIcon(R.drawable.ic_stat)
+            .setSmallIcon(source?.notifyIcon ?: R.drawable.ic_stat)
+            .setColor(source?.notifyColor ?: 0)
+            .setSubText(source?.workTitle)
             .setContentTitle(s.title + if (more > 0) "  (+$more more)" else "")
             .setContentText(s.detail)
             .setProgress(100, s.percent ?: 0, s.percent == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(open())
-        hub.sources.getOrNull(index)?.let { source ->
+            .setContentIntent(open(source?.workId))
+        source?.let { source ->
             val cancel = PendingIntent.getService(
                 this, index + 1,
                 Intent(this, WorkService::class.java).setAction(ACTION_CANCEL).putExtra(EXTRA_ID, source.workId),
@@ -141,12 +150,15 @@ class WorkService : Service() {
         return builder.build()
     }
 
-    private fun done(s: WorkSnapshot): Notification = NotificationCompat.Builder(this, CH_DONE)
-        .setSmallIcon(R.drawable.ic_stat)
+    private fun done(s: WorkSnapshot, source: WorkSource): Notification = NotificationCompat.Builder(this, CH_DONE)
+        .setSmallIcon(source.notifyIcon)
+        .setColor(source.notifyColor)
+        .setSubText(source.workTitle)
         .setContentTitle(s.doneTitle)
         .setContentText(s.doneText)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(s.doneText))
         .setAutoCancel(true)
-        .setContentIntent(open())
+        .setContentIntent(open(source.workId))
         .build()
 
     private companion object {

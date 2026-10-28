@@ -68,7 +68,7 @@ fun UltimateRoot(app: UltimateApp) {
     incoming?.let { pending ->
         AlertDialog(
             onDismissRequest = shell::dismissIncoming,
-            title = { Text(if (pending.uris.size == 1) "What should happen to this video?" else "What should happen to these ${pending.uris.size} videos?") },
+            title = { Text(if (pending.uris.size == 1) "What should happen to this file?" else "What should happen to these ${pending.uris.size} files?") },
             text = {
                 Column {
                     pending.candidates.forEach { tool ->

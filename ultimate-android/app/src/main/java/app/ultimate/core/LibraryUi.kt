@@ -43,6 +43,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,6 +92,15 @@ private fun ThumbView(thumb: Thumb, tool: Tool, modifier: Modifier) {
                     ?: Icon(tool.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             is Thumb.AppIcon -> AppIcon(thumb.packageName, size = 72.dp)
+            is Thumb.Image -> {
+                val context = LocalContext.current
+                var bitmap by remember(thumb.uri) { mutableStateOf<Bitmap?>(null) }
+                LaunchedEffect(thumb.uri) {
+                    bitmap = withContext(Dispatchers.IO) { runCatching { context.contentResolver.loadThumbnail(Uri.parse(thumb.uri), android.util.Size(256, 256), null) }.getOrNull() }
+                }
+                bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                    ?: Icon(tool.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             is Thumb.Waveform -> Waveform(thumb.peaks, Modifier.fillMaxSize().padding(8.dp), bars = 24.coerceAtMost(thumb.peaks.size.coerceAtLeast(1)))
             Thumb.Generic -> Icon(tool.icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -108,6 +118,7 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             item.uri?.let { SendTo(Uri.parse(it), item.mimeType, tool.id, onSent = onDismiss) }
+            if (item.mimeType.startsWith("text/") && item.uri != null) TextPreview(item.uri)
             if (item.mimeType.startsWith("audio/") && item.uri != null) {
                 AudioPlayerBar(Uri.parse(item.uri), (item.thumb as? Thumb.Waveform)?.peaks.orEmpty())
             }
@@ -153,6 +164,26 @@ fun LibraryDetailSheet(item: LibraryItem, tool: Tool, onDismiss: () -> Unit) {
                 }
             },
         )
+    }
+}
+
+/** The start of a saved text result (a report), readable right in the sheet. */
+@Composable
+private fun TextPreview(uri: String) {
+    val context = LocalContext.current
+    var text by remember(uri) { mutableStateOf<String?>(null) }
+    LaunchedEffect(uri) {
+        text = withContext(Dispatchers.IO) {
+            runCatching { context.contentResolver.openInputStream(Uri.parse(uri))!!.use { it.readBytes().decodeToString().take(60_000) } }.getOrElse { "This file is gone from your phone." }
+        }
+    }
+    androidx.compose.foundation.layout.Box(
+        Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(14.dp),
+    ) {
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            Text(text ?: "…", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+        }
     }
 }
 

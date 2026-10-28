@@ -1,5 +1,6 @@
 package app.ultimate.sensors
 
+import androidx.compose.animation.core.animateFloat
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -38,6 +39,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +70,8 @@ import kotlin.math.sin
 /** The latest values and a short history for one sensor. */
 private class Live(val sensor: Sensor) {
     var values by mutableStateOf(FloatArray(0))
+    /** SensorManager.SENSOR_STATUS_*; low means the reading needs calibrating. */
+    var accuracy by mutableIntStateOf(SensorManager.SENSOR_STATUS_ACCURACY_HIGH)
     val history = ArrayDeque<Float>()
     var tick by mutableIntStateOf(0)
 }
@@ -74,8 +79,23 @@ private class Live(val sensor: Sensor) {
 private const val HISTORY = 120
 
 /** Listens to every continuous sensor while the screen is visible, at UI rate, and stops when it leaves. */
+/** Writes every reading to CSV while on; capped so a forgotten recording cannot fill the phone. */
+private class Recorder {
+    var on by mutableStateOf(false)
+    var rows by mutableIntStateOf(0)
+    private var started = 0L
+    private val out = StringBuilder()
+    fun start() { out.clear(); out.append("ms,sensor,v1,v2,v3,v4,v5,v6\n"); rows = 0; started = android.os.SystemClock.elapsedRealtime(); on = true }
+    fun add(name: String, v: FloatArray) {
+        if (!on) return
+        if (out.length > 8_000_000) { on = false; return }
+        out.append(SensorMath.csvRow(android.os.SystemClock.elapsedRealtime() - started, name, v)).append('\n'); rows++
+    }
+    fun stop(): String { on = false; return out.toString() }
+}
+
 @Composable
-private fun rememberSensors(): List<Live> {
+private fun rememberSensors(recorder: Recorder? = null): List<Live> {
     val context = LocalContext.current
     val sm = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
     val live = remember {
@@ -92,8 +112,9 @@ private fun rememberSensors(): List<Live> {
                     l.history.addLast(if (e.values.size >= 3 && l.sensor.type != Sensor.TYPE_ROTATION_VECTOR) SensorMath.magnitude(e.values.copyOf(3)) else e.values.firstOrNull() ?: 0f)
                     while (l.history.size > HISTORY) l.history.removeFirst()
                     l.tick++
+                    recorder?.add(typeName(l.sensor), e.values)
                 }
-                override fun onAccuracyChanged(s: Sensor, a: Int) = Unit
+                override fun onAccuracyChanged(s: Sensor, a: Int) { l.accuracy = a }
             }.also { runCatching { sm.registerListener(it, l.sensor, SensorManager.SENSOR_DELAY_UI) } }
         }
         onDispose { listeners.forEach { sm.unregisterListener(it) } }
@@ -105,14 +126,36 @@ private fun rememberSensors(): List<Live> {
 @Composable
 fun SensorsScreen(onExit: () -> Unit) {
     BackHandler(onBack = onExit)
-    val live = rememberSensors()
+    val recorder = remember { Recorder() }
+    val live = rememberSensors(recorder)
+    val context = LocalContext.current
+    val openedAt = remember { android.os.SystemClock.elapsedRealtime() }
+    var now by remember { mutableLongStateOf(openedAt) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(500); now = android.os.SystemClock.elapsedRealtime() } }
     fun of(type: Int) = live.firstOrNull { it.sensor.type == type }
-    Scaffold(topBar = { TopAppBar(title = { Text("Sensors") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Sensors") }, navigationIcon = { ToolBackButton(onExit) },
+                actions = {
+                    // Record every sensor to a CSV in Downloads/Ultimate, for a spreadsheet or another app.
+                    if (recorder.on) {
+                        val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "rec").animateFloat(0.3f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(700), androidx.compose.animation.core.RepeatMode.Reverse), label = "dot")
+                        androidx.compose.material3.TextButton({ saveCsv(context, recorder.stop()) }) {
+                            Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error.copy(alpha = pulse)))
+                            Spacer(Modifier.width(8.dp)); Text("Stop · ${recorder.rows}")
+                        }
+                    } else androidx.compose.material3.TextButton(recorder::start) { Text("Record") }
+                    ShellActions()
+                },
+            )
+        },
+    ) { pad ->
         LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     (of(Sensor.TYPE_ROTATION_VECTOR) ?: of(Sensor.TYPE_GAME_ROTATION_VECTOR))?.let { item { Compass(it) } }
-                    of(Sensor.TYPE_ACCELEROMETER)?.let { item { Level(it) }; item { GForce(it) } }
+                    of(Sensor.TYPE_ACCELEROMETER)?.let { item { Level(it) }; item { SteadyHand(it) }; item { GForce(it) } }
                     of(Sensor.TYPE_LIGHT)?.let { item { Light(it) } }
                     of(Sensor.TYPE_PRESSURE)?.let { item { Barometer(it) } }
                     of(Sensor.TYPE_MAGNETIC_FIELD)?.let { item { Metal(it) } }
@@ -121,7 +164,7 @@ fun SensorsScreen(onExit: () -> Unit) {
             item {
                 Text("${live.size} sensors", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
-            items(live, key = { it.sensor.type.toString() + it.sensor.name }) { SensorCard(it) }
+            items(live, key = { it.sensor.type.toString() + it.sensor.name }) { SensorCard(it, now - openedAt) }
         }
     }
 }
@@ -152,7 +195,8 @@ private fun Compass(l: Live) {
     val ring = MaterialTheme.colorScheme.outlineVariant
     val north = MaterialTheme.colorScheme.error
     val text = MaterialTheme.colorScheme.onSurface
-    Hero("Compass", "${azimuth.toInt()}° ${SensorMath.compassPoint(azimuth)}", "Hold the phone flat") {
+    val needsCalibration = l.accuracy <= SensorManager.SENSOR_STATUS_ACCURACY_LOW
+    Hero("Compass", "${azimuth.toInt()}° ${SensorMath.compassPoint(azimuth)}", if (needsCalibration) "Wave the phone in a figure 8 to calibrate" else "Hold the phone flat") {
         Canvas(Modifier.fillMaxSize().rotate(shown)) {
             val r = size.minDimension / 2
             drawCircle(ring, r, style = Stroke(2.dp.toPx()))
@@ -266,7 +310,7 @@ private fun unit(type: Int) = when (type) {
 }
 
 @Composable
-private fun SensorCard(l: Live) {
+private fun SensorCard(l: Live, waitedMs: Long) {
     var open by remember { mutableStateOf(false) }
     @Suppress("UNUSED_EXPRESSION") l.tick
     val s = l.sensor
@@ -285,9 +329,12 @@ private fun SensorCard(l: Live) {
                 Spark(l, MaterialTheme.colorScheme.primary, Modifier.width(90.dp).height(32.dp))
             }
             Text(
-                if (l.values.isEmpty()) "Waiting for a reading…" else l.values.take(3).joinToString("   ") { String.format(Locale.US, "%.2f", it) } + " " + unit(s.type),
-                Modifier.padding(top = 6.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+                if (l.values.isEmpty()) SensorMath.waitingHint(s.type, s.reportingMode == Sensor.REPORTING_MODE_ON_CHANGE, waitedMs)
+                else l.values.take(3).joinToString("   ") { String.format(Locale.US, "%.2f", it) } + " " + unit(s.type),
+                Modifier.padding(top = 6.dp), fontFamily = if (l.values.isEmpty()) null else FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
+                color = if (l.values.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
+            if (l.values.size >= 3 && s.type != Sensor.TYPE_ROTATION_VECTOR && s.type != Sensor.TYPE_GAME_ROTATION_VECTOR) AxisBars(l)
             if (open) Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 listOf(
                     "Maker" to s.vendor, "Range" to "${s.maximumRange} ${unit(s.type)}", "Resolution" to "${s.resolution}",
@@ -297,4 +344,79 @@ private fun SensorCard(l: Live) {
             }
         }
     }
+}
+
+/** X, Y and Z as bars growing from the middle, scaled to the largest value seen, so direction and size read at a glance. */
+@Composable
+private fun AxisBars(l: Live) {
+    val peak = remember(l) { mutableStateOf(1f) }
+    val v = l.values
+    peak.value = maxOf(peak.value, kotlin.math.abs(v[0]), kotlin.math.abs(v[1]), kotlin.math.abs(v[2]))
+    val colors = listOf(Color(0xFFE53935), Color(0xFF43A047), Color(0xFF1E88E5))
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf("x", "y", "z").forEachIndexed { i, axis ->
+            val f by animateFloatAsState((v[i] / peak.value).coerceIn(-1f, 1f), label = axis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(axis, Modifier.width(14.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Canvas(Modifier.weight(1f).height(6.dp)) {
+                    drawRoundRect(track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()))
+                    val mid = size.width / 2
+                    val w = mid * kotlin.math.abs(f)
+                    drawRoundRect(colors[i], Offset(if (f < 0) mid - w else mid, 0f), androidx.compose.ui.geometry.Size(w, size.height), androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()))
+                }
+            }
+        }
+    }
+}
+
+/** A little game on the level: keep the ball in the centre ring as long as you can. */
+@Composable
+private fun SteadyHand(l: Live) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("sensors", Context.MODE_PRIVATE) }
+    var best by remember { mutableLongStateOf(prefs.getLong("steady", 0)) }
+    var since by remember { mutableLongStateOf(0L) }
+    var held by remember { mutableLongStateOf(0L) }
+    val (pitch, roll) = if (l.values.size >= 3) SensorMath.tilt(l.values) else 0f to 0f
+    val x by animateFloatAsState((-roll / 15f).coerceIn(-1f, 1f), spring(stiffness = 300f), label = "sx")
+    val y by animateFloatAsState((pitch / 15f).coerceIn(-1f, 1f), spring(stiffness = 300f), label = "sy")
+    val inside = kotlin.math.hypot(x, y) < 0.25f
+    LaunchedEffect(inside) {
+        if (!inside) { since = 0; return@LaunchedEffect }
+        since = android.os.SystemClock.elapsedRealtime()
+        while (true) {
+            held = android.os.SystemClock.elapsedRealtime() - since
+            if (held > best) { best = held; prefs.edit().putLong("steady", best).apply() }
+            kotlinx.coroutines.delay(50)
+        }
+    }
+    val good = Color(0xFF2E9E5B)
+    val ring = MaterialTheme.colorScheme.outlineVariant
+    val ball = if (inside) good else MaterialTheme.colorScheme.tertiary
+    Hero("Steady hand", String.format(Locale.US, "%.1f s", (if (inside) held else 0) / 1000f), "Best ${String.format(Locale.US, "%.1f", best / 1000f)} s · keep the ball in the ring") {
+        Canvas(Modifier.fillMaxSize()) {
+            val r = size.minDimension / 2
+            drawCircle(ring, r, style = Stroke(2.dp.toPx()))
+            drawCircle(if (inside) good.copy(alpha = 0.18f) else ring.copy(alpha = 0.3f), r * 0.25f)
+            drawCircle(ring, r * 0.25f, style = Stroke(1.5.dp.toPx()))
+            drawCircle(ball, r * 0.1f, Offset(center.x + x * r * 0.85f, center.y + y * r * 0.85f))
+        }
+    }
+}
+
+private fun saveCsv(context: Context, csv: String) {
+    val name = "sensors-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(java.util.Date())}.csv"
+    val values = android.content.ContentValues().apply {
+        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/Ultimate")
+    }
+    val uri = runCatching {
+        context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!.also { u -> context.contentResolver.openOutputStream(u)!!.use { it.write(csv.toByteArray()) } }
+    }.getOrNull()
+    if (uri == null) { android.widget.Toast.makeText(context, "Couldn't save the recording", android.widget.Toast.LENGTH_SHORT).show(); return }
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/csv").putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    android.widget.Toast.makeText(context, "Saved $name to Downloads/Ultimate", android.widget.Toast.LENGTH_SHORT).show()
+    context.startActivity(android.content.Intent.createChooser(send, "Share recording"))
 }

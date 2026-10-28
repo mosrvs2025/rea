@@ -50,7 +50,7 @@ fun ActivityScreen(app: UltimateApp, pad: PaddingValues) {
         item {
             Text("Activity", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
             Text(
-                "What each tool is doing, or did last, in full detail.",
+                "Live and recent work (scans, conversions, exports) with its full log. Finished files are in the Library.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -78,7 +78,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
                 Text(
                     when {
                         snap.active -> snap.title + (snap.percent?.let { " · $it%" } ?: "")
-                        lines.isEmpty() -> "Nothing yet"
+                        lines.isEmpty() -> "Idle"
                         else -> snap.doneText ?: "Idle"
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -99,7 +99,7 @@ private fun SourceCard(app: UltimateApp, source: WorkSource) {
             Terminal(lines, live = snap.active, title = source.workTitle.lowercase().replace(' ', '-') + ".log", startExpanded = snap.active)
         } else {
             Text(
-                "Run ${tool?.title ?: "this tool"} and its log appears here.",
+                "Nothing has run since Ultimate started. Start something in ${tool?.title ?: "this tool"} and you can follow it here, even after leaving the tool.",
                 Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Start,
             )
         }

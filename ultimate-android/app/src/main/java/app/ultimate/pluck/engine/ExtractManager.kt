@@ -1,5 +1,6 @@
 package app.ultimate.pluck.engine
 
+import app.ultimate.R
 import android.content.Context
 import app.ultimate.core.JobLog
 import app.ultimate.core.WorkHub
@@ -44,6 +45,8 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
     private val _state = MutableStateFlow(ExtractState())
     val state: StateFlow<ExtractState> = _state.asStateFlow()
 
+    override val notifyIcon = R.drawable.ic_stat_pluck
+    override val notifyColor = 0xFF2E7D32.toInt()
     override val workId = "pluck"
     override val workTitle = "Pluck"
     override val log = JobLog()
@@ -65,7 +68,7 @@ class ExtractManager(private val app: Context, private val history: HistoryStore
         if (s.jobs.isEmpty()) return WorkSnapshot()
         val n = s.saved.size
         return WorkSnapshot(
-            doneTitle = "Pluck finished",
+            doneTitle = if (n == 1) "${s.jobs.first().app.label} saved" else "Pluck finished",
             doneText = if (n == 0) "Nothing was extracted" else "$n app${if (n == 1) "" else "s"} saved to Downloads/Pluck",
         )
     }

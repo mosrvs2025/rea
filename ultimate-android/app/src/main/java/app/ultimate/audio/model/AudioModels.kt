@@ -194,3 +194,20 @@ class PeakTracker(totalFrames: Long, private val buckets: Int = AudioPlanner.pea
 
     fun snapshot(): List<Float> = peaks.toList() + if (inBucket > 0 && peaks.size < buckets) listOf((current / 32768f).coerceIn(0f, 1f)) else emptyList()
 }
+
+/** A ready-made starting point on the tool's first screen: it sets the options, then asks for the right kind of file. */
+data class AudioTemplate(val title: String, val blurb: String, val audioFiles: Boolean, val apply: (AudioSettings) -> AudioSettings)
+
+object AudioTemplates {
+    val all = listOf(
+        AudioTemplate("Song from a video", "High-quality MP3 of a video's sound", audioFiles = false) { AudioSettings(format = OutFormat.Mp3, kbps = 256) },
+        AudioTemplate("Ringtone", "Fades in and out, evened out; trim to the best part", audioFiles = true) {
+            AudioSettings(format = OutFormat.Mp3, kbps = 192, fadeInMs = 1_000, fadeOutMs = 3_000, normalize = true)
+        },
+        AudioTemplate("Podcast at 1.5×", "Faster, mono and small, voices unchanged", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, kbps = 96, mono = true, speed = 1.5f) },
+        AudioTemplate("Join voice notes", "Several recordings into one, at an even level", audioFiles = true) { AudioSettings(format = OutFormat.Mp3, kbps = 128, mono = true, join = true, normalize = true) },
+        AudioTemplate("Clearer voice memo", "Less rumble and hiss, louder", audioFiles = true) {
+            AudioSettings(format = OutFormat.Mp3, kbps = 128, mono = true, bassDb = -6f, trebleDb = 3f, highCutHz = 12_000, normalize = true)
+        },
+    )
+}

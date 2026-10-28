@@ -1,5 +1,6 @@
 package app.ultimate.audio.engine
 
+import app.ultimate.R
 import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
@@ -56,6 +57,8 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
     val state: StateFlow<AudioQueue> = _state.asStateFlow()
     private var runner: Job? = null
 
+    override val notifyIcon = R.drawable.ic_stat_audio
+    override val notifyColor = 0xFFE65100.toInt()
     override val workId = "audio"
     override val workTitle = "Video to audio"
     override val log = JobLog()
@@ -77,7 +80,7 @@ class AudioManager(private val app: Context, private val store: AudioStore, priv
         if (s.jobs.isEmpty()) return WorkSnapshot()
         val n = s.done.size
         return WorkSnapshot(
-            doneTitle = "Audio ready",
+            doneTitle = if (n == 1) "${s.jobs.first().name} is ready" else "Audio ready",
             doneText = if (n == 0) "Nothing was converted" else "$n file${if (n == 1) "" else "s"} · ${formatBytes(s.done.sumOf { it.bytes })} in Music/Ultimate",
         )
     }

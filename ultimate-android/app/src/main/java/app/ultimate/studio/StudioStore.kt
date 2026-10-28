@@ -18,10 +18,11 @@ object StudioJson {
     fun encode(p: StudioProject): String = JSONObject().apply {
         put("schema", 1); put("id", p.id); put("name", p.name); put("updatedAt", p.updatedAt)
         put("shape", p.shape.name); put("fill", p.fillCanvas); put("bpm", p.bpm); put("beatOffset", p.beatOffsetMs); put("size", p.shortSide)
+        put("fadeIn", p.fadeInMs); put("fadeOut", p.fadeOutMs)
         put("clips", JSONArray().apply { p.clips.forEach { c -> put(JSONObject().apply {
             put("id", c.id); put("uri", c.uri); put("name", c.name); put("sourceMs", c.sourceMs); put("startMs", c.startMs); put("endMs", c.endMs)
             put("speed", c.speed); put("volume", c.volume); put("look", c.look.name); put("brightness", c.brightness); put("rotation", c.rotation)
-            put("title", c.title); put("titlePosition", c.titlePosition)
+            put("title", c.title); put("titlePosition", c.titlePosition); put("captionStyle", c.captionStyle.name); put("captionColor", c.captionColor)
         }) } })
         p.music?.let { m -> put("music", JSONObject().apply { put("uri", m.uri); put("name", m.name); put("durationMs", m.durationMs); put("startMs", m.startMs); put("volume", m.volume) }) }
     }.toString()
@@ -30,10 +31,11 @@ object StudioJson {
         val a = j.getJSONArray("clips")
         return StudioProject(j.getString("id"), j.getString("name"), j.getLong("updatedAt"), List(a.length()) { i -> a.getJSONObject(i).let { c ->
             StudioClip(c.getString("id"), c.getString("uri"), c.getString("name"), c.getLong("sourceMs"), c.getLong("startMs"), c.getLong("endMs"),
-                c.getDouble("speed").toFloat(), c.getDouble("volume").toFloat(), Look.valueOf(c.getString("look")), c.getDouble("brightness").toFloat(), c.getInt("rotation"), c.getString("title"), c.getInt("titlePosition"))
+                c.getDouble("speed").toFloat(), c.getDouble("volume").toFloat(), Look.valueOf(c.getString("look")), c.getDouble("brightness").toFloat(), c.getInt("rotation"), c.getString("title"), c.getInt("titlePosition"),
+                runCatching { CaptionStyle.valueOf(c.optString("captionStyle")) }.getOrDefault(CaptionStyle.Box), c.optInt("captionColor", 0xFFFFFF))
         } }, CanvasShape.valueOf(j.getString("shape")), j.getBoolean("fill"), j.optJSONObject("music")?.let { m ->
             StudioMusic(m.getString("uri"), m.getString("name"), m.getLong("durationMs"), m.getLong("startMs"), m.getDouble("volume").toFloat())
-        }, j.getInt("bpm"), j.getLong("beatOffset"), j.getInt("size"))
+        }, j.getInt("bpm"), j.getLong("beatOffset"), j.getInt("size"), j.optLong("fadeIn", 0), j.optLong("fadeOut", 0))
     }
 }
 

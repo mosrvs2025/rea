@@ -84,6 +84,8 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
     val seen = remember { mutableSetOf<Any>() }
     var showInsights by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (showInsights) InsightsSheet(app) { showInsights = false }
+    var showSavings by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (showSavings) SavingsSheet(app.tools, all, onOpen = { t, i -> showSavings = false; openItem(app, t, i) }) { showSavings = false }
 
     // Two columns: every tool, the space-saved hero and the latest results fit on one screen. An odd last tool takes the full row.
     LazyVerticalGrid(
@@ -93,18 +95,31 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Ultimate", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Hero(saved, all.size)
+                Hero(saved, all.size) { showSavings = true }
             }
         }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
-        itemsIndexed(app.tools, key = { _, t -> t.id }, span = { i, _ -> if (app.tools.size % 2 == 1 && i == app.tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { i, tool ->
-            ToolTile(
-                Modifier.animateItem().appear(tool.id, seen, i + 1), tool, wide = app.tools.size % 2 == 1 && tool === app.tools.last(),
-                active = running.any { it.first.workId == tool.id }, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
-                onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
-            )
+        // Grouped so the grid reads as a few families instead of one long wall of tiles.
+        var order = 0
+        toolSections(app.tools).forEach { (section, tools) ->
+            val headerAt = order
+            item(key = "section-$section", span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    section, Modifier.animateItem().appear("section-$section", seen, headerAt).padding(start = 4.dp, top = 6.dp),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold,
+                )
+            }
+            val base = ++order
+            order += tools.size
+            itemsIndexed(tools, key = { _, t -> t.id }, span = { i, _ -> if (tools.size % 2 == 1 && i == tools.lastIndex) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { i, tool ->
+                ToolTile(
+                    Modifier.animateItem().appear(tool.id, seen, base + i), tool, wide = tools.size % 2 == 1 && tool === tools.last(),
+                    active = running.any { it.first.workId == tool.id }, stop = app.work.sources.firstOrNull { it.workId == tool.id }?.takeIf { src -> running.any { it.first === src } },
+                    onLibrary = { shell.showLibraryOf(tool.id) }, onClick = { shell.open(tool) },
+                )
+            }
         }
         if (recent.isNotEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -195,11 +210,11 @@ private fun ToolTile(modifier: Modifier = Modifier, tool: Tool, wide: Boolean, a
 
 /** Space saved so far, as a small counting-up chip beside the title. */
 @Composable
-private fun Hero(saved: Long, count: Int) {
+private fun Hero(saved: Long, count: Int, onClick: () -> Unit) {
     val shown = remember { Animatable(0f) }
     LaunchedEffect(saved) { shown.animateTo(saved.toFloat(), tween(1400, easing = FastOutSlowInEasing)) }
     Column(
-        Modifier.clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 14.dp, vertical = 6.dp),
+        Modifier.pressScale().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer).clickable(onClickLabel = "See where your space went", onClick = onClick).padding(horizontal = 14.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.End,
     ) {
         Text(formatBytes(shown.value.toLong()), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -228,4 +243,16 @@ private fun ShapeCard(onClick: () -> Unit) {
             Text("Export a usage report to plan the next tools", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
         }
     }
+}
+
+/** Home's families of tools, in a fixed order; a tool not named here joins "More". */
+internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String, List<app.ultimate.core.Tool>>> {
+    val families = linkedMapOf(
+        "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
+        "Phone" to listOf("checkup", "pluck", "sensors", "sound-meter"),
+        "Network" to listOf("traffic", "lan"),
+    )
+    val placed = families.values.flatten().toSet()
+    return (families.map { (name, ids) -> name to ids.mapNotNull { id -> tools.firstOrNull { it.id == id } } } + ("More" to tools.filter { it.id !in placed }))
+        .filter { it.second.isNotEmpty() }
 }

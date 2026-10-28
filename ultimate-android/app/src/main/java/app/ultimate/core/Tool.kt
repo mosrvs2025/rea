@@ -10,6 +10,8 @@ sealed interface Thumb {
     data class Frame(val path: String) : Thumb
     data class AppIcon(val packageName: String) : Thumb
     data class Waveform(val peaks: List<Float>) : Thumb
+    /** A picture saved through MediaStore, shown with the system thumbnail. */
+    data class Image(val uri: String) : Thumb
     data object Generic : Thumb
 }
 

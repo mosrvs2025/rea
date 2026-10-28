@@ -37,4 +37,23 @@ object SensorMath {
         lux < 10_000 -> "Overcast daylight"
         else -> "Direct sunlight"
     }
+
+    /**
+     * What to say about a sensor that has not reported yet. Sensors that report only on change stay quiet until something
+     * happens, so they get a hint for how to wake them; continuous ones are explained only once a wait is unusual.
+     */
+    fun waitingHint(type: Int, onChangeOnly: Boolean, waitedMs: Long): String = when {
+        waitedMs < 1500 -> "Listening…"
+        type == 8 -> "Wave a hand over the top of the screen"            // proximity
+        type == 5 -> "Point the phone at a lamp or window"               // light
+        type == 18 || type == 19 -> "Take a few steps"                   // step detector / counter
+        type == 21 || type == 31 -> "Needs a watch or a finger on the sensor" // heart rate / heart beat
+        onChangeOnly -> "Reports only when something changes"
+        waitedMs < 5000 -> "Listening…"
+        else -> "Quiet: the system may be using it, or it only works in special modes"
+    }
+
+    /** One CSV row: milliseconds since recording started, sensor name, then the values. */
+    fun csvRow(ms: Long, name: String, values: FloatArray): String =
+        buildString { append(ms); append(','); append('"').append(name.replace("\"", "'")).append('"'); values.forEach { append(','); append(it) } }
 }

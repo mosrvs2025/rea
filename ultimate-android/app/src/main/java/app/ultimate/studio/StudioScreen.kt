@@ -1,5 +1,7 @@
 package app.ultimate.studio
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.animateColorAsState
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -282,7 +284,7 @@ fun StudioScreen(manager: StudioManager, onExit: () -> Unit) {
                             Panel.Volume -> clip?.let { c -> VolumePanel(c) { v -> change(c.id) { it.copy(volume = v) } } }
                             Panel.Filters -> clip?.let { c -> FiltersPanel(c, onPick = { look -> change(c.id) { it.copy(look = look) } }, onAll = { look -> manager.edit { p -> p.copy(clips = p.clips.map { it.copy(look = look) }) } }) }
                             Panel.Adjust -> clip?.let { c -> AdjustPanel(c, onBrightness = { v -> change(c.id) { it.copy(brightness = v) } }, onRotate = { stop(); change(c.id) { it.copy(rotation = (it.rotation + 90) % 360) } }) }
-                            Panel.Text -> clip?.let { c -> TextPanel(c, onText = { t -> change(c.id) { it.copy(title = t) } }, onPosition = { pos -> change(c.id) { it.copy(titlePosition = pos) } }) }
+                            Panel.Text -> clip?.let { c -> TextPanel(c, onText = { t -> change(c.id) { it.copy(title = t) } }, onPosition = { pos -> change(c.id) { it.copy(titlePosition = pos) } }, onStyle = { st, col -> change(c.id) { it.copy(captionStyle = st, captionColor = col) } }) }
                             Panel.Audio -> AudioPanel(project, playhead, manager, busy, onPick = { stop(); music.launch(arrayOf("audio/*", "video/*")) })
                             Panel.Format -> FormatPanel(project, busy, manager)
                             null -> Unit
@@ -806,7 +808,7 @@ private fun AdjustPanel(c: StudioClip, onBrightness: (Float) -> Unit, onRotate: 
 }
 
 @Composable
-private fun TextPanel(c: StudioClip, onText: (String) -> Unit, onPosition: (Int) -> Unit) {
+private fun TextPanel(c: StudioClip, onText: (String) -> Unit, onPosition: (Int) -> Unit, onStyle: (CaptionStyle, Int) -> Unit) {
     // Typed text is kept locally and saved after a short pause, so each key is not its own undo step.
     var draft by remember(c.id) { mutableStateOf(c.title) }
     LaunchedEffect(draft) { delay(500); if (draft != c.title) onText(draft) }
@@ -814,6 +816,19 @@ private fun TextPanel(c: StudioClip, onText: (String) -> Unit, onPosition: (Int)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
         listOf("Middle", "Top", "Bottom").forEachIndexed { i, label -> FilterChip(c.titlePosition == i, { onPosition(i) }, { Text(label) }) }
         if (c.title.isNotEmpty()) TextButton({ draft = ""; onText("") }) { Text("Remove") }
+    }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CaptionStyle.entries.forEach { st -> FilterChip(c.captionStyle == st, { onStyle(st, c.captionColor) }, { Text(st.label) }) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+        CAPTION_COLORS.forEach { col ->
+            val on = c.captionColor == col
+            val ring by animateDpAsState(if (on) 3.dp else 0.dp, label = "swatch")
+            Box(
+                Modifier.size(32.dp).clip(CircleShape).background(Color(0xFF000000 or col.toLong())).border(ring, MaterialTheme.colorScheme.primary, CircleShape)
+                    .clickable { onStyle(c.captionStyle, col) },
+            )
+        }
     }
 }
 
@@ -835,6 +850,13 @@ private fun AudioPanel(project: StudioProject, playhead: Long, manager: StudioMa
         Slider(start, { start = it }, onValueChangeFinished = { manager.edit { it.copy(music = m.copy(startMs = start.toLong())) } }, valueRange = 0f..(m.durationMs - 100).toFloat().coerceAtLeast(1f), enabled = !busy)
         Text("Music loops to the length of the film.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    Text("Fade the film's sound", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(0L to "No fades", 1_000L to "1 s", 2_000L to "2 s", 4_000L to "4 s").forEach { (ms, label) ->
+            FilterChip(project.fadeInMs == ms && project.fadeOutMs == ms, { manager.edit { it.copy(fadeInMs = ms, fadeOutMs = ms) } }, { Text(label) }, enabled = !busy)
+        }
+    }
+    Text("In at the start and out at the end, in the exported video.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     TextButton({ showBeats = !showBeats }) { Text(if (showBeats) "Hide beat tools" else "Beat tools") }
     if (showBeats) {
         var bpm by remember(project.bpm) { mutableStateOf(project.bpm.toString()) }
@@ -888,7 +910,25 @@ private fun ExportSheet(project: StudioProject, manager: StudioManager, onDismis
                 Text("${project.width} × ${project.height} · ${clock(project.durationMs)} · ${project.clips.size} clips · MP4, no watermark", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Made for", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ExportPreset.entries.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { preset ->
+                                val on = preset.matches(project)
+                                val bg by animateColorAsState(if (on) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow, label = "preset")
+                                Column(
+                                    Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(bg).clickable(enabled = !work.active) { manager.edit { preset.applyTo(it) } }.padding(12.dp),
+                                ) {
+                                    Text(preset.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(preset.blurb, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
                     listOf(720 to "720p", 1080 to "1080p HD").forEach { (side, label) -> FilterChip(project.shortSide == side, { manager.edit { it.copy(shortSide = side) } }, { Text(label) }, enabled = !work.active) }
                 }
             }

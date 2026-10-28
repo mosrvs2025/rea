@@ -131,6 +131,7 @@ import kotlinx.coroutines.launch
 fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
     val state by manager.state.collectAsStateWithLifecycle()
     var share by remember { mutableStateOf(false) }
+    val withConsent = app.ultimate.core.rememberNotificationConsent()
     var ask by remember { mutableStateOf(false) }
     BackHandler(onBack = onExit)
     // Coming back from granting usage access: scan again so the new details appear without another tap.
@@ -148,7 +149,7 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
             TopAppBar(
                 title = { Text("Phone checkup") }, navigationIcon = { ToolBackButton(onExit) },
                 actions = {
-                    if (state is CheckupManager.State.Done) IconButton(manager::scan) { Icon(Icons.Rounded.Refresh, "Scan again") }
+                    if (state is CheckupManager.State.Done) IconButton({ withConsent { manager.scan() } }) { Icon(Icons.Rounded.Refresh, "Scan again") }
                     ShellActions()
                 },
             )
@@ -170,13 +171,13 @@ fun CheckupScreen(manager: CheckupManager, onExit: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (val s = state) {
-                CheckupManager.State.Idle -> Intro(manager::scan)
+                CheckupManager.State.Idle -> Intro({ withConsent { manager.scan() } })
                 is CheckupManager.State.Scanning -> Scanning(s)
                 is CheckupManager.State.Failed -> Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("The scan stopped", style = MaterialTheme.typography.titleLarge)
                     Text(s.message, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                     Spacer(Modifier.height(16.dp))
-                    Button(manager::scan) { Text("Try again") }
+                    Button({ withConsent { manager.scan() } }) { Text("Try again") }
                 }
                 is CheckupManager.State.Done -> Results(s.scan, manager)
             }

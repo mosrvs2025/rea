@@ -33,23 +33,34 @@ class AudioController(private val app: UltimateApp) {
     private val previewer = AudioConverter(app)
     private var previewJob: Job? = null
 
+    private var original: Pair<AudioSettings, Pair<File, List<Float>>>? = null
+
+    /**
+     * Renders the edited preview again. The original only changes with the file, trim or mono, so it is reused; the old result
+     * stays on screen while the new one renders, so the waveform reshapes instead of blinking.
+     */
     fun renderPreview() {
         val v = picked.value.singleOrNull()?.takeIf { it.audio != null } ?: return
         val s = settings.value
         previewJob?.cancel()
         preview.update { it.copy(rendering = true, error = null) }
         previewJob = scope.launch {
-            val dir = File(app.cacheDir, "audio-preview").apply { deleteRecursively(); mkdirs() }
+            val dir = File(app.cacheDir, "audio-preview").apply { mkdirs() }
             val stamp = System.currentTimeMillis()
             val input = ConvertInput(v.uri, v.name, v.audio!!)
             val base = AudioSettings(trimStartMs = s.trimStartMs, trimEndMs = s.trimEndMs, mono = s.mono)
             preview.value = runCatching {
-                val a = previewer.preview(input, base, File(dir, "original-$stamp.wav"))
+                val a = original?.takeIf { it.first == base && it.second.first.exists() && preview.value.original != null }?.second
+                    ?: previewer.preview(input, base, File(dir, "original-$stamp.wav")).also { original = base to it }
                 val b = previewer.preview(input, s, File(dir, "edited-$stamp.wav"))
+                dir.listFiles()?.filter { it != a.first && it != b.first }?.forEach { it.delete() }
                 Preview(Uri.fromFile(a.first), Uri.fromFile(b.first), a.second, b.second)
-            }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else Preview(error = it.message ?: "Preview failed") }
+            }.getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it else preview.value.copy(rendering = false, error = it.message ?: "Preview failed") }
         }
     }
+
+    /** Starts from a template: its options, then the matching picker. */
+    fun applyTemplate(t: app.ultimate.audio.model.AudioTemplate) = settings.update { t.apply(it) }
 
     fun add(uris: List<Uri>) {
         val fresh = uris.distinct().filter { u -> picked.value.none { it.uri == u } }
@@ -73,6 +84,7 @@ class AudioController(private val app: UltimateApp) {
     }
 
     fun clear() {
+        original = null
         previewJob?.cancel()
         preview.value = Preview()
         picked.value = emptyList()

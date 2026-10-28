@@ -1,5 +1,6 @@
 package app.ultimate.traffic.engine
 
+import app.ultimate.R
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -69,6 +70,8 @@ class TrafficManager(private val context: Context) : WorkSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(TrafficState())
     val state: StateFlow<TrafficState> = _state.asStateFlow()
+    override val notifyIcon = R.drawable.ic_stat_traffic
+    override val notifyColor = 0xFF5E35B1.toInt()
     override val workId = "traffic"
     override val workTitle = "Traffic inspector"
     override val log = JobLog()

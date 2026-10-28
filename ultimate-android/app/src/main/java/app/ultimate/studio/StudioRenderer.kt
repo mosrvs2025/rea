@@ -70,7 +70,8 @@ class StudioRenderer(private val context: Context) {
             val music = EditedMediaItem.Builder(item).setRemoveVideo(true).setEffects(Effects(StudioEffects.audio(1f, m.volume), emptyList())).build()
             sequences += EditedMediaItemSequence.Builder(music).setIsLooping(true).build()
         }
-        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(true)
+        val fades = if (project.fadeInMs > 0 || project.fadeOutMs > 0) listOf<androidx.media3.common.audio.AudioProcessor>(FadeProcessor(project.fadeInMs, project.fadeOutMs, project.durationMs)) else emptyList()
+        val composition = Composition.Builder(sequences).experimentalSetForceAudioTrack(true).setEffects(Effects(fades, emptyList()))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL).build()
         val handler = Handler(Looper.getMainLooper())
         val holder = ProgressHolder()
