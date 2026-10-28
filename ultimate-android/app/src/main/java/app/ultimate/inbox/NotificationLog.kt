@@ -31,6 +31,9 @@ object LogRules {
     fun skip(pkg: String, ownPackage: String, ongoing: Boolean, title: String, body: String, excluded: Set<String>): Boolean =
         pkg == ownPackage || pkg in excluded || ongoing || (title.isBlank() && body.isBlank()) || pkg == "android" || pkg == "com.android.systemui"
 
+    /** Lines of a conversation not yet kept, in order. */
+    fun unseen(all: List<String>, seen: Collection<String>): List<String> = all.filter { it !in seen }
+
     /** A fingerprint of the content, so the same update posted again is stored once. */
     fun fingerprint(pkg: String, title: String, body: String) = "$pkg\u0000$title\u0000$body".hashCode()
 }
@@ -62,11 +65,38 @@ class NotificationLog(private val context: Context) : SQLiteOpenHelper(context, 
     }
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) = Unit
 
+    /** Whether Android currently has the listener connected, and when it last caught something. */
+    fun connected(on: Boolean) = prefs.edit().putBoolean("connected", on).apply()
+    val isConnected get() = prefs.getBoolean("connected", false)
+    val lastCaught get() = prefs.getLong("lastCaught", 0)
+
+    private val seenMessages = HashMap<String, ArrayDeque<String>>()
+
+    /** The messages in [all] that were not already stored for this conversation [key]. */
+    @Synchronized fun newMessages(key: String, all: List<String>): List<String> {
+        if (all.isEmpty()) return emptyList()
+        val seen = seenMessages.getOrPut(key) {
+            // After a restart, rebuild what was stored for this chat from the latest rows.
+            ArrayDeque(readableDatabase.rawQuery("SELECT text FROM n WHERE nkey = ? ORDER BY at DESC LIMIT 20", arrayOf(key)).use { c ->
+                buildList { while (c.moveToNext()) addAll(c.getString(0).split('\n')) }
+            })
+        }
+        val fresh = LogRules.unseen(all, seen)
+        fresh.forEach { seen.addLast(it); if (seen.size > 200) seen.removeFirst() }
+        return fresh
+    }
+
+    fun today(now: Long = System.currentTimeMillis()): Int {
+        val start = java.util.Calendar.getInstance().apply { timeInMillis = now; set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }.timeInMillis
+        return readableDatabase.rawQuery("SELECT COUNT(*) FROM n WHERE at >= ?", arrayOf(start.toString())).use { it.moveToFirst(); it.getInt(0) }
+    }
+
     fun add(pkg: String, app: String, at: Long, title: String, text: String, convo: String?, key: String) {
         val fp = LogRules.fingerprint(pkg, title, text)
         val db = writableDatabase
         // The same notification updated with identical content (a refresh, a re-post) is kept once.
         db.rawQuery("SELECT 1 FROM n WHERE nkey = ? AND fp = ? AND at > ? LIMIT 1", arrayOf(key, fp.toString(), (at - 6 * 3_600_000L).toString())).use { if (it.moveToFirst()) return }
+        prefs.edit().putLong("lastCaught", System.currentTimeMillis()).apply()
         db.insert("n", null, ContentValues().apply {
             put("pkg", pkg); put("app", app); put("at", at); put("title", title); put("text", text); put("convo", convo); put("nkey", key); put("fp", fp)
         })

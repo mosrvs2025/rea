@@ -116,8 +116,21 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { server.offer(it) }
     LaunchedEffect(launch) { if (!launch.consumed) { launch.consumed = true; if (launch.uris.isNotEmpty()) { server.offer(launch.uris); server.start() } } }
-    // The server lives only while this screen is open, so nothing listens on the network unnoticed.
-    DisposableEffect(Unit) { onDispose { server.stop() } }
+    // With background sharing off, leaving the screen turns sharing off, so nothing listens on the network unnoticed.
+    DisposableEffect(Unit) { onDispose { if (!server.keepInBackground) server.stop() } }
+    var renaming by remember { mutableStateOf(false) }
+    if (renaming) {
+        var name by remember { mutableStateOf(server.codeName) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { renaming = false }, title = { Text("Name this address") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("e.g. maurice-phone") })
+                Text("Letters, numbers and dashes. Anyone on your Wi-Fi who knows it can open the page, so pick something not easy to guess. Remembered computers are forgotten.", style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { TextButton({ if (server.rename(name) != null) renaming = false }, enabled = SendHttp.cleanCode(name) != null) { Text("Save") } },
+            dismissButton = { Row { TextButton({ server.rename(null); renaming = false }) { Text("Random") }; TextButton({ renaming = false }) { Text("Cancel") } } },
+        )
+    }
     val pulse by rememberInfiniteTransition(label = "on").animateFloat(0.4f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "dot")
 
     Scaffold(topBar = { TopAppBar(title = { Text("Send to computer") }, navigationIcon = { ToolBackButton(onExit) }, actions = { ShellActions() }) }) { pad ->
@@ -134,17 +147,28 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
                             } else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF2E9E5B).copy(alpha = pulse)))
-                                    Spacer(Modifier.width(8.dp)); Text("On. Type this into your computer's browser:", style = MaterialTheme.typography.bodyMedium)
+                                    Spacer(Modifier.width(8.dp)); Text("On. Open this on your computer:", style = MaterialTheme.typography.bodyMedium)
                                 }
-                                Text(address.removePrefix("http://"), Modifier.clickable { copyText(context, "Address", address) }, style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                                Text("Tap it to copy. The code at the end keeps others on your Wi-Fi out. Leaving this screen turns it off.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                TextButton(server::stop) { Text("Turn off") }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(address.removePrefix("http://"), Modifier.clickable { copyText(context, "Address", address) }, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                        Text("Tap to copy · bookmark it, it stays the same", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    }
+                                    QrCode(address, Modifier.size(104.dp))
+                                }
+                                Text(
+                                    if (server.rememberedCount() > 0) "${server.rememberedCount()} computer${if (server.rememberedCount() == 1) " is" else "s are"} remembered: there, just ${address.removePrefix("http://").substringBeforeLast('/')} opens it."
+                                    else "After the first visit, that computer is remembered and the address without the name works too.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                                Row { TextButton({ renaming = true }) { Text("Change name") }; TextButton(server::stop) { Text("Turn off") } }
                             }
                         }
                         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
+            item { SharingOptions(server) }
             item {
                 if (state.running) Card {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -183,5 +207,43 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
                 }
             }
         }
+    }
+}
+
+/** What the computer may see and whether sharing keeps going in the background. */
+@Composable
+private fun SharingOptions(server: SendServer) {
+    val context = LocalContext.current
+    var background by remember { mutableStateOf(server.keepInBackground) }
+    var notes by remember { mutableStateOf(server.api.shareNotifications) }
+    var files by remember { mutableStateOf(server.api.shareFiles) }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("On the computer's dashboard", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("Library, clipboard both ways and phone status are always there.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Option("Keep sharing in the background", "Stays on with a notification; turns off after 2 hours with no visits", background) { background = it; server.keepInBackground = it }
+            Option("Browse the phone's files", if (app.ultimate.files.hasAllFiles(context)) "Every folder, download and upload anywhere" else "Needs all files access (open Files once)", files) { files = it; server.api.shareFiles = it }
+            Option("Show notifications", "Your notification history, searchable on the big screen", notes) { notes = it; server.api.shareNotifications = it }
+            Text("The page is plain HTTP on your Wi-Fi: use it only on networks you trust.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+private fun Option(title: String, detail: String, on: Boolean, onChange: (Boolean) -> Unit) = Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.weight(1f)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    androidx.compose.material3.Switch(on, onChange)
+}
+
+/** A QR code of [text], drawn with plain squares so it scales sharply. */
+@Composable
+fun QrCode(text: String, modifier: Modifier) {
+    val matrix = remember(text) { runCatching { com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, mapOf(com.google.zxing.EncodeHintType.MARGIN to 1)) }.getOrNull() } ?: return
+    androidx.compose.foundation.Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color.White).padding(6.dp)) {
+        val cell = size.minDimension / matrix.width
+        for (y in 0 until matrix.height) for (x in 0 until matrix.width) if (matrix[x, y]) drawRect(Color.Black, androidx.compose.ui.geometry.Offset(x * cell, y * cell), androidx.compose.ui.geometry.Size(cell + 0.5f, cell + 0.5f))
     }
 }

@@ -97,3 +97,24 @@ class SmartTest {
         assertEquals("1h 5m", UsageMath.hm(65 * 60_000L)); assertEquals("9m", UsageMath.hm(9 * 60_000L))
     }
 }
+
+class CompanionTest {
+    @org.junit.Test fun addressNamesAreUrlSafe() {
+        org.junit.Assert.assertEquals("maurice-phone", app.ultimate.send.SendHttp.cleanCode(" Maurice Phone! "))
+        org.junit.Assert.assertNull(app.ultimate.send.SendHttp.cleanCode("a!"))
+        org.junit.Assert.assertEquals(32, app.ultimate.send.SendHttp.cleanCode("x".repeat(50))!!.length)
+    }
+
+    @org.junit.Test fun browserPathsStayInsideStorage() {
+        val root = kotlin.io.path.createTempDirectory().toFile()
+        java.io.File(root, "DCIM").mkdirs()
+        org.junit.Assert.assertEquals(java.io.File(root, "DCIM").canonicalFile, app.ultimate.send.SendApiPaths.resolve(root, "DCIM"))
+        org.junit.Assert.assertEquals(root.canonicalFile, app.ultimate.send.SendApiPaths.resolve(root, ""))
+        org.junit.Assert.assertNull(app.ultimate.send.SendApiPaths.resolve(root, "../../etc"))
+        org.junit.Assert.assertNull(app.ultimate.send.SendApiPaths.resolve(root, "DCIM/../../x"))
+    }
+
+    @org.junit.Test fun chatLinesAlreadyKeptAreNotKeptAgain() {
+        org.junit.Assert.assertEquals(listOf("Ana: new"), app.ultimate.inbox.LogRules.unseen(listOf("Ana: hi", "Ana: new"), listOf("Ana: hi")))
+    }
+}

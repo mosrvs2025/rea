@@ -44,6 +44,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -137,6 +138,7 @@ private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
                     Button({ context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("Turn on notification access") }
                 }
             }
+            if (enabled) item { ListenerStatus(log, changed) }
             item {
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(28.dp),
                     placeholder = { Text("Search notifications") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
@@ -163,6 +165,50 @@ private fun InboxScreen(app: UltimateApp, onExit: () -> Unit) {
         }
     }
     if (settings) InboxSettings(log, apps, onDismiss = { settings = false })
+}
+
+/** Is it actually listening? Green when Android has it connected; otherwise the one-tap fixes for a paused listener. */
+@Composable
+private fun ListenerStatus(log: NotificationLog, changed: Int) {
+    val context = LocalContext.current
+    val pm = context.getSystemService(android.os.PowerManager::class.java)
+    var unrestricted by remember { mutableStateOf(pm.isIgnoringBatteryOptimizations(context.packageName)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { unrestricted = pm.isIgnoringBatteryOptimizations(context.packageName) }
+    var today by remember { mutableStateOf(0) }
+    LaunchedEffect(changed) { today = withContext(Dispatchers.IO) { log.today() } }
+    val live = log.isConnected && !log.paused
+    val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "live").animateFloat(0.35f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1000), androidx.compose.animation.core.RepeatMode.Reverse), label = "dot")
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(if (live) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (live) androidx.compose.ui.graphics.Color(0xFF2E9E5B).copy(alpha = pulse) else MaterialTheme.colorScheme.error))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                when {
+                    log.paused -> "Paused by you"
+                    live -> "Listening" + (if (log.lastCaught > 0) " · last caught ${app.ultimate.core.relativeTime(log.lastCaught)}" else "") + " · $today today"
+                    else -> "Android has paused listening"
+                },
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        if (!live && !log.paused) {
+            Text("Notifications that arrive now won't be kept. Reconnect, and let Ultimate run in the background so it stays connected.", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button({ android.service.notification.NotificationListenerService.requestRebind(ComponentName(context, NotificationCatcher::class.java)) }) { Text("Reconnect") }
+                TextButton({ context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }) { Text("Check access") }
+            }
+        }
+        if (!unrestricted) Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Samsung may put Ultimate to sleep and miss notifications.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            TextButton({
+                @android.annotation.SuppressLint("BatteryLife")
+                val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:${context.packageName}"))
+                runCatching { context.startActivity(i) }.onFailure { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+            }) { Text("Keep awake") }
+        }
+    }
 }
 
 @Composable

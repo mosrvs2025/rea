@@ -55,6 +55,9 @@ object SendHttp {
     }
 
     /** A file name safe to save: no folders, no control characters. */
+    /** An address name the user typed, made URL-safe: lower case letters, digits and dashes, 3 to 32 long. */
+    fun cleanCode(raw: String): String? = raw.trim().lowercase().replace(Regex("[^a-z0-9-]+"), "-").trim('-').take(32).takeIf { it.length >= 3 }
+
     fun safeName(raw: String): String = raw.substringAfterLast('/').substringAfterLast('\\').filter { it >= ' ' && it !in "<>:\"|?*" }.trim().take(120).ifBlank { "file" }
 
     fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
@@ -72,7 +75,12 @@ class SendServer(private val context: Context) {
     val state: StateFlow<State> = _state.asStateFlow()
     private var scope: CoroutineScope? = null
     private var socket: ServerSocket? = null
-    private var code = SendHttp.newCode()
+    private val prefs = context.getSharedPreferences("send", Context.MODE_PRIVATE)
+    /** The part of the address after the port. It stays the same between sessions so a bookmark keeps working. */
+    private var code = prefs.getString("code", null) ?: SendHttp.newCode().also { prefs.edit().putString("code", it).apply() }
+    val api = SendApi(context, this)
+    @Volatile var lastVisit = 0L
+        private set
     @Volatile private var cameraFrame: ByteArray? = null
     private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
     fun camera(enabled: Boolean) { cameraFrame = null; _state.update { it.copy(camera = enabled) } }
@@ -92,11 +100,12 @@ class SendServer(private val context: Context) {
     fun start() {
         if (_state.value.running) return
         val ip = wifiAddress() ?: run { _state.update { it.copy(error = "Connect to Wi-Fi first; your computer must be on the same network.") }; return }
-        code = SendHttp.newCode()
         val server = runCatching { ServerSocket(PORT) }.recoverCatching { ServerSocket(0) }.getOrElse { _state.update { s -> s.copy(error = "Couldn't open a port: ${it.message}") }; return }
         socket = server
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO).also { scope = it }
         _state.update { it.copy(running = true, address = "http://$ip:${server.localPort}/$code", error = null) }
+        lastVisit = System.currentTimeMillis()
+        if (prefs.getBoolean("background", true)) runCatching { androidx.core.content.ContextCompat.startForegroundService(context, android.content.Intent(context, SendService::class.java)) }
         s.launch {
             while (isActive) {
                 val client = runCatching { server.accept() }.getOrNull() ?: break
@@ -112,7 +121,27 @@ class SendServer(private val context: Context) {
         camera(false)
         scope?.cancel(); scope = null; socket = null
         _state.update { it.copy(running = false, address = null) }
+        runCatching { context.stopService(android.content.Intent(context, SendService::class.java)) }
     }
+
+    /** Sets the address name (letters, digits and dashes) or makes a new random one; either way, remembered computers are forgotten. */
+    fun rename(raw: String?): String? {
+        val name = raw?.let { SendHttp.cleanCode(it) ?: return null } ?: SendHttp.newCode()
+        code = name
+        prefs.edit().putString("code", name).remove("tokens").apply()
+        if (_state.value.running) _state.update { it.copy(address = it.address?.substringBeforeLast('/') + "/" + name) }
+        return name
+    }
+    val codeName get() = code
+
+    var keepInBackground: Boolean
+        get() = prefs.getBoolean("background", true)
+        set(v) = prefs.edit().putBoolean("background", v).apply()
+
+    /** Computers that opened the page once and got a cookie, so the plain address and port opens the page directly. */
+    private fun tokens(): Set<String> = prefs.getStringSet("tokens", emptySet()).orEmpty()
+    fun rememberedCount() = tokens().size
+    fun forgetComputers() = prefs.edit().remove("tokens").apply()
 
     fun offer(uris: List<Uri>) {
         val add = uris.mapNotNull { u ->
@@ -133,10 +162,25 @@ class SendServer(private val context: Context) {
         val out = client.getOutputStream()
         val req = SendHttp.parseHead(readHead(input)) ?: return
         val prefix = "/$code"
-        if (req.path != prefix && !req.path.startsWith("$prefix/")) return respond(out, 404, "text/plain", "Not found".toByteArray())
+        val cookie = req.headers["cookie"].orEmpty().split(';').map { it.trim() }.firstOrNull { it.startsWith("ult=") }?.removePrefix("ult=")
+        val known = cookie != null && cookie in tokens()
+        if (req.path != prefix && !req.path.startsWith("$prefix/")) {
+            // A remembered computer can use the bare address; everyone else needs the name in it.
+            if (known && req.path == "/") { out.write("HTTP/1.1 302 Found\r\nLocation: $prefix\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()); out.flush(); return }
+            return respond(out, 404, "text/html; charset=utf-8", "<h3 style='font-family:system-ui'>Ultimate: open the full address shown on your phone.</h3>".toByteArray())
+        }
+        lastVisit = System.currentTimeMillis()
         val rest = req.path.removePrefix(prefix)
         when {
-            req.method == "GET" && (rest == "" || rest == "/") -> respond(out, 200, "text/html; charset=utf-8", context.assets.open("companion.html").use { it.readBytes() })
+            req.method == "GET" && (rest == "" || rest == "/") -> {
+                val body = context.assets.open("companion.html").use { it.readBytes() }
+                val token = cookie?.takeIf { known } ?: SendHttp.newCode() + SendHttp.newCode()
+                if (!known) prefs.edit().putStringSet("tokens", (tokens() + token).toList().takeLast(20).toSet()).apply()
+                out.write(("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${body.size}\r\nCache-Control: no-store\r\n" +
+                    "Set-Cookie: ult=$token; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict\r\nConnection: close\r\n\r\n").toByteArray())
+                out.write(body); out.flush()
+            }
+            rest.startsWith("/api/") -> api.handle(req, rest.removePrefix("/api"), input, out)
             req.method == "GET" && rest == "/status" -> respond(out, 200, "application/json", status().toByteArray())
             req.method == "GET" && rest == "/camera" -> {
                 if (!_state.value.camera) return respond(out, 409, "text/plain", "Enable camera on the phone first".toByteArray())
@@ -150,29 +194,7 @@ class SendServer(private val context: Context) {
             }
             (req.method == "GET" || req.method == "HEAD") && rest.startsWith("/f/") -> {
                 val f = _state.value.offered.firstOrNull { it.id == rest.removePrefix("/f/") } ?: return respond(out, 404, "text/plain", "Gone".toByteArray())
-                val range = SendRange.parse(req.headers["range"], f.bytes)
-                if (range == null) return respond(out, 416, "text/plain", "Range not satisfiable".toByteArray())
-                context.contentResolver.openInputStream(f.uri)?.use { src ->
-                    val partial = req.headers["range"] != null && f.bytes > 0
-                    val previewable = f.mime.startsWith("video/") || f.mime.startsWith("audio/") || (f.mime.startsWith("image/") && f.mime != "image/svg+xml")
-                    val disposition = if (req.query["download"] == "1" || !previewable) "attachment" else "inline"
-                    val length = if (f.bytes > 0) range.last - range.first + 1 else -1
-                    val head = "HTTP/1.1 ${if (partial) "206 Partial Content" else "200 OK"}\r\nContent-Type: ${f.mime}\r\n" +
-                        (if (length >= 0) "Content-Length: $length\r\nAccept-Ranges: bytes\r\n" else "") +
-                        (if (partial) "Content-Range: bytes ${range.first}-${range.last}/${f.bytes}\r\n" else "") +
-                        "Content-Disposition: $disposition; filename*=UTF-8''${java.net.URLEncoder.encode(f.name, "UTF-8").replace("+", "%20")}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
-                    out.write(head.toByteArray())
-                    if (req.method != "HEAD") {
-                        var skip = range.first
-                        while (skip > 0) { val n = src.skip(skip); if (n > 0) skip -= n else { check(src.read() >= 0); skip-- } }
-                        if (length < 0) src.copyTo(out) else {
-                            var left = length; val buffer = ByteArray(64 * 1024)
-                            while (left > 0) { val n = src.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt()); if (n < 0) break; out.write(buffer, 0, n); left -= n }
-                        }
-                    }
-                    out.flush()
-                    if (req.method == "GET" && range.first == 0L) context.track("send.download")
-                } ?: respond(out, 404, "text/plain", "File unavailable".toByteArray())
+                if (stream(out, req, f.name, f.mime, f.bytes) { context.contentResolver.openInputStream(f.uri) } && req.method == "GET" && req.headers["range"] == null) context.track("send.download")
             }
             req.method == "PUT" && rest == "/upload" -> {
                 val name = SendHttp.safeName(req.query["name"] ?: "file")
@@ -189,7 +211,37 @@ class SendServer(private val context: Context) {
         }
     }
 
-    private fun save(name: String, mime: String, input: InputStream, length: Long): Uri {
+    /**
+     * Sends a file with byte ranges (so video and audio can seek in the browser), inline for previewable media and as an
+     * attachment otherwise or when ?download=1. Returns false when the file could not be opened.
+     */
+    internal fun stream(out: OutputStream, req: SendHttp.Request, name: String, mime: String, bytes: Long, open: () -> InputStream?): Boolean {
+        val range = SendRange.parse(req.headers["range"], bytes) ?: run { respond(out, 416, "text/plain", "Range not satisfiable".toByteArray()); return true }
+        val src = runCatching { open() }.getOrNull() ?: run { respond(out, 404, "text/plain", "File unavailable".toByteArray()); return false }
+        src.use {
+            val partial = req.headers["range"] != null && bytes > 0
+            val previewable = mime.startsWith("video/") || mime.startsWith("audio/") || (mime.startsWith("image/") && mime != "image/svg+xml") || mime == "application/pdf" || mime.startsWith("text/plain")
+            val disposition = if (req.query["download"] == "1" || !previewable) "attachment" else "inline"
+            val length = if (bytes > 0) range.last - range.first + 1 else -1
+            val head = "HTTP/1.1 ${if (partial) "206 Partial Content" else "200 OK"}\r\nContent-Type: $mime\r\n" +
+                (if (length >= 0) "Content-Length: $length\r\nAccept-Ranges: bytes\r\n" else "") +
+                (if (partial) "Content-Range: bytes ${range.first}-${range.last}/$bytes\r\n" else "") +
+                "Content-Disposition: $disposition; filename*=UTF-8''${java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20")}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+            out.write(head.toByteArray())
+            if (req.method != "HEAD") {
+                var skip = range.first
+                while (skip > 0) { val n = src.skip(skip); if (n > 0) skip -= n else { check(src.read() >= 0); skip-- } }
+                if (length < 0) src.copyTo(out) else {
+                    var left = length; val buffer = ByteArray(64 * 1024)
+                    while (left > 0) { val n = src.read(buffer, 0, minOf(left, buffer.size.toLong()).toInt()); if (n < 0) break; out.write(buffer, 0, n); left -= n }
+                }
+            }
+            out.flush()
+        }
+        return true
+    }
+
+    internal fun save(name: String, mime: String, input: InputStream, length: Long): Uri {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, name); put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, "Download/Ultimate"); put(MediaStore.Downloads.IS_PENDING, 1)
@@ -216,7 +268,7 @@ class SendServer(private val context: Context) {
         return lines
     }
 
-    private fun respond(out: OutputStream, status: Int, type: String, body: ByteArray) {
+    internal fun respond(out: OutputStream, status: Int, type: String, body: ByteArray) {
         out.write("HTTP/1.1 $status OK\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".toByteArray())
         out.write(body); out.flush()
     }

@@ -14,6 +14,19 @@ class NotificationCatcher : NotificationListenerService() {
     private val log get() = (application as UltimateApp).notificationLog
     private var lastTrim = 0L
 
+    // When Android (re)connects the listener, whatever is already in the shade is kept too, so nothing shown while it was
+    // paused is lost.
+    override fun onListenerConnected() {
+        log.connected(true)
+        runCatching { activeNotifications?.forEach { onNotificationPosted(it) } }
+    }
+
+    // Samsung and Android can drop the listener to save battery; asking to be bound again brings it back without the user.
+    override fun onListenerDisconnected() {
+        log.connected(false)
+        runCatching { requestRebind(android.content.ComponentName(this, NotificationCatcher::class.java)) }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         runCatching {
             val log = log
@@ -30,7 +43,10 @@ class NotificationCatcher : NotificationListenerService() {
                 // Android 10 has no parser for these, so read the bundle keys MessagingStyle writes.
                 else raw.orEmpty().mapNotNull { (it as? android.os.Bundle)?.let { b -> listOfNotNull(b.getCharSequence("sender"), b.getCharSequence("text")).joinToString(": ").ifBlank { null } } }
             }.getOrDefault(emptyList())
-            val body = LogRules.body(e.getCharSequence(Notification.EXTRA_TEXT)?.toString(), e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(), lines, messages.takeLast(6))
+            // Chat apps re-post the whole conversation with each message; keep only lines not stored before for this chat.
+            val fresh = log.newMessages(sbn.key, messages)
+            if (messages.isNotEmpty() && fresh.isEmpty()) return
+            val body = LogRules.body(e.getCharSequence(Notification.EXTRA_TEXT)?.toString(), e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(), lines, fresh)
             val ongoing = n.flags and Notification.FLAG_ONGOING_EVENT != 0 || n.category == Notification.CATEGORY_PROGRESS || n.category == Notification.CATEGORY_TRANSPORT
             if (LogRules.skip(sbn.packageName, packageName, ongoing, title, body, log.excluded)) return
             val app = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrDefault(sbn.packageName)
