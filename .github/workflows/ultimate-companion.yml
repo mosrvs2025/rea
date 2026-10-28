@@ -35,6 +35,7 @@ jobs:
       - name: Test and build
         working-directory: ultimate-android
         env:
+          COMPANION_VERSION_CODE: ${{ github.run_number }}
           ULTIMATE_KEYSTORE_FILE: ${{ runner.temp }}/companion.jks
           ULTIMATE_KEYSTORE_PASSWORD: ${{ secrets.COMPANION_KEYSTORE_PASSWORD }}
           ULTIMATE_KEY_ALIAS: companion
