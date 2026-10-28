@@ -118,3 +118,24 @@ class CompanionTest {
         org.junit.Assert.assertEquals(listOf("Ana: new"), app.ultimate.inbox.LogRules.unseen(listOf("Ana: hi", "Ana: new"), listOf("Ana: hi")))
     }
 }
+
+class TodayTest {
+    private fun facts(free: Long = 50, total: Long = 100, checkupAt: Long? = 0, update: String? = null, access: Boolean? = true, screen: Long? = 0) =
+        app.ultimate.home.Facts(80, false, free, total, screen, 3, access, 80, checkupAt, update, 10 * 86_400_000L)
+
+    @org.junit.Test fun nudgesPickWhatIsWorthDoingNow() {
+        val all = setOf("cleanup", "checkup", "inbox", "screentime")
+        val n = app.ultimate.home.Nudges.build(facts(free = 5, update = "1.23.0", access = false, screen = 5 * 3_600_000L), all).map { it.id }
+        org.junit.Assert.assertEquals(listOf("update", "space", "checkup", "inbox", "screen"), n)
+        org.junit.Assert.assertTrue(app.ultimate.home.Nudges.build(facts(checkupAt = 10 * 86_400_000L - 1000), all).isEmpty())
+        org.junit.Assert.assertTrue(app.ultimate.home.Nudges.build(facts(free = 5, checkupAt = null), emptySet()).isEmpty())
+    }
+
+    @org.junit.Test fun browsersAreNamedPlainly() {
+        val h = app.ultimate.send.SendHttp
+        org.junit.Assert.assertEquals("Chrome on Windows", h.browserLabel("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"))
+        org.junit.Assert.assertEquals("Edge on Windows", h.browserLabel("Mozilla/5.0 (Windows NT 10.0) Chrome/131.0 Safari/537.36 Edg/131.0"))
+        org.junit.Assert.assertEquals("Safari on Mac", h.browserLabel("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15"))
+        org.junit.Assert.assertEquals("A browser", h.browserLabel(null))
+    }
+}

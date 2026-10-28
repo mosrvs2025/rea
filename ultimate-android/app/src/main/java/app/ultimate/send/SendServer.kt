@@ -55,6 +55,20 @@ object SendHttp {
     }
 
     /** A file name safe to save: no folders, no control characters. */
+    /** "Chrome on Windows" from a browser's user agent, for the phone's "connected" line. */
+    fun browserLabel(agent: String?): String {
+        val a = agent.orEmpty()
+        val browser = when {
+            "Edg/" in a -> "Edge"; "OPR/" in a || "Opera" in a -> "Opera"; "Firefox/" in a -> "Firefox"
+            "Chrome/" in a -> "Chrome"; "Safari/" in a -> "Safari"; else -> "A browser"
+        }
+        val os = when {
+            "Windows" in a -> "Windows"; "Mac OS X" in a && "iPhone" !in a && "iPad" !in a -> "Mac"; "iPhone" in a -> "iPhone"; "iPad" in a -> "iPad"
+            "Android" in a -> "Android"; "CrOS" in a -> "Chromebook"; "Linux" in a -> "Linux"; else -> null
+        }
+        return if (os == null) browser else "$browser on $os"
+    }
+
     /** An address name the user typed, made URL-safe: lower case letters, digits and dashes, 3 to 32 long. */
     fun cleanCode(raw: String): String? = raw.trim().lowercase().replace(Regex("[^a-z0-9-]+"), "-").trim('-').take(32).takeIf { it.length >= 3 }
 
@@ -79,6 +93,17 @@ class SendServer(private val context: Context) {
     /** The part of the address after the port. It stays the same between sessions so a bookmark keeps working. */
     private var code = prefs.getString("code", null) ?: SendHttp.newCode().also { prefs.edit().putString("code", it).apply() }
     val api = SendApi(context, this)
+    /** Computers seen in the last minute, by browser, so the phone can show who is connected. */
+    data class Visitor(val label: String, val address: String, val lastSeen: Long)
+    private val _visitors = MutableStateFlow<List<Visitor>>(emptyList())
+    val visitors: StateFlow<List<Visitor>> = _visitors.asStateFlow()
+    private fun seen(address: String, agent: String?) {
+        val now = System.currentTimeMillis()
+        val label = SendHttp.browserLabel(agent)
+        val prev = _visitors.value
+        if (prev.any { it.address == address && now - it.lastSeen < 5_000 }) return
+        _visitors.value = (prev.filter { it.address != address && now - it.lastSeen < 60_000 } + Visitor(label, address, now)).sortedByDescending { it.lastSeen }
+    }
     @Volatile var lastVisit = 0L
         private set
     @Volatile private var cameraFrame: ByteArray? = null
@@ -121,6 +146,7 @@ class SendServer(private val context: Context) {
         camera(false)
         scope?.cancel(); scope = null; socket = null
         _state.update { it.copy(running = false, address = null) }
+        _visitors.value = emptyList()
         runCatching { context.stopService(android.content.Intent(context, SendService::class.java)) }
     }
 
@@ -170,6 +196,7 @@ class SendServer(private val context: Context) {
             return respond(out, 404, "text/html; charset=utf-8", "<h3 style='font-family:system-ui'>Ultimate: open the full address shown on your phone.</h3>".toByteArray())
         }
         lastVisit = System.currentTimeMillis()
+        seen(client.inetAddress?.hostAddress ?: "?", req.headers["user-agent"])
         val rest = req.path.removePrefix(prefix)
         when {
             req.method == "GET" && (rest == "" || rest == "/") -> {

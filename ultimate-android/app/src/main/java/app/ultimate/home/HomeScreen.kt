@@ -101,6 +101,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
+        item(span = { GridItemSpan(maxLineSpan) }) { TodayDashboard(app) }
         if (running.isNotEmpty()) items(running, key = { "run-${it.first.workId}" }, span = { GridItemSpan(maxLineSpan) }) { (source, snap) ->
             RunningBanner(source, snap, app.tools.firstOrNull { it.id == source.workId }, onView = { app.tools.firstOrNull { it.id == source.workId }?.let(shell::open) })
         }
