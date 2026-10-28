@@ -18,6 +18,7 @@ import app.ultimate.audio.model.OutFormat
 import app.ultimate.audio.model.PcmMixer
 import app.ultimate.audio.model.PeakTracker
 import app.ultimate.audio.model.Stretcher
+import app.ultimate.audio.model.ToneShaper
 import app.ultimate.core.JobLog
 import app.ultimate.core.formatBytes
 import app.ultimate.core.formatDuration
@@ -115,8 +116,41 @@ class AudioConverter(private val context: Context) {
         val channels = AudioPlanner.outputChannels(inputs.map { it.source }, s)
         if (inputs.size > 1) log.detail("  join    ${inputs.size} files, in order, as one")
         if (s.speed != 1f) log.detail("  speed   ${s.speed}× (pitch kept)")
-        val tracker = PeakTracker(totalFrames = outMs * rate / 1000)
-        val stretcher = if (s.speed != 1f) Stretcher(rate, channels, s.speed) else null
+        if (s.pitch != 0) log.detail("  pitch   ${if (s.pitch > 0) "+" else ""}${s.pitch} semitones")
+        if (s.bassDb != 0f || s.trebleDb != 0f || s.highCutHz > 0) log.detail("  tone    bass ${s.bassDb} dB · treble ${s.trebleDb} dB · high cut ${if (s.highCutHz > 0) "${s.highCutHz} Hz" else "off"}")
+        if (s.fadeInMs > 0 || s.fadeOutMs > 0) log.detail("  fades   in ${s.fadeInMs} ms · out ${s.fadeOutMs} ms")
+        val totalFrames = outMs * rate / 1000
+
+        /** Decodes every input and runs it through mixing, stretching and shaping, handing finished PCM to [emit]. */
+        suspend fun chain(gain: Float, progressShare: Float, progressStart: Float, emit: (ShortArray, Int) -> Unit) {
+            val stretcher = if (s.speed != 1f || s.pitch != 0) Stretcher(rate, channels, s.speed, AudioPlanner.pitchFactor(s.pitch)) else null
+            val shaper = if (s.shaped || gain != 1f) ToneShaper(rate, channels, s.bassDb, s.trebleDb, s.highCutHz, s.fadeInMs * rate / 1000, s.fadeOutMs * rate / 1000, totalFrames, gain) else null
+            fun out(samples: ShortArray, n: Int) { if (n <= 0) return; shaper?.process(samples, n); emit(samples, n) }
+            inputs.forEachIndexed { i, input ->
+                if (inputs.size > 1 && progressStart > 0f) log.detail("  part ${i + 1}  ${input.name}")
+                var mixer: PcmMixer? = null
+                var mixedFrom = 0 to 0
+                decode(input.uri, input.source, s, { f -> onProgress(progressStart + progressShare * (i + f) / inputs.size, emptyList()) }) { pcm, count, srcRate, srcChannels ->
+                    if (mixer == null || mixedFrom != (srcRate to srcChannels)) {
+                        mixer = PcmMixer(srcChannels, channels, srcRate, rate)
+                        mixedFrom = srcRate to srcChannels
+                    }
+                    val (mixed, n) = mixer!!.process(pcm, count)
+                    if (stretcher == null) out(mixed, n) else { val (st, m) = stretcher.process(mixed, n); out(st, m) }
+                }
+            }
+            stretcher?.finish()?.let { (st, m) -> out(st, m) }
+        }
+
+        // Normalizing needs the loudest moment of the finished sound before writing, so measure it in a first pass.
+        var gain = 1f
+        if (s.normalize) {
+            var peak = 1
+            chain(1f, 0.4f, 0f) { samples, n -> for (k in 0 until n) peak = maxOf(peak, kotlin.math.abs(samples[k].toInt())) }
+            gain = (AudioPlanner.NORMALIZE_PEAK.toFloat() / peak).coerceIn(0.1f, 8f)
+            log.detail("  level   peak ${String.format(java.util.Locale.US, "%.1f", 20 * kotlin.math.log10(peak / 32768.0))} dBFS → gain ${String.format(java.util.Locale.US, "%.1f", 20 * kotlin.math.log10(gain.toDouble()))} dB")
+        }
+        val tracker = PeakTracker(totalFrames = totalFrames)
         val sink: PcmSink = when (s.format) {
             OutFormat.Mp3 -> Mp3Sink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels, s.kbps)
             OutFormat.Wav -> WavSink(ParcelFileDescriptor.AutoCloseOutputStream(fd), rate, channels)
@@ -124,32 +158,30 @@ class AudioConverter(private val context: Context) {
         }
         log.detail("  encoder ${sink.describe()}")
         try {
-            fun emit(samples: ShortArray, n: Int) {
-                if (n <= 0) return
-                tracker.add(samples, n, channels)
-                sink.write(samples, n)
-            }
-            inputs.forEachIndexed { i, input ->
-                if (inputs.size > 1) log.detail("  part ${i + 1}  ${input.name}")
-                var mixer: PcmMixer? = null
-                var mixedFrom = 0 to 0
-                decode(input.uri, input.source, s, { f -> onProgress((i + f) / inputs.size, tracker.snapshot()) }) { pcm, count, srcRate, srcChannels ->
-                    if (mixer == null || mixedFrom != (srcRate to srcChannels)) {
-                        if (srcRate != rate) log.detail("  resample $srcRate Hz → $rate Hz")
-                        mixer = PcmMixer(srcChannels, channels, srcRate, rate)
-                        mixedFrom = srcRate to srcChannels
-                    }
-                    val (mixed, n) = mixer!!.process(pcm, count)
-                    if (stretcher == null) emit(mixed, n) else { val (st, m) = stretcher.process(mixed, n); emit(st, m) }
-                }
-            }
-            stretcher?.finish()?.let { (st, m) -> emit(st, m) }
+            val start = if (s.normalize) 0.4f else 0f
+            chain(gain, 1f - start, start + 1e-6f) { samples, n -> tracker.add(samples, n, channels); sink.write(samples, n) }
             sink.finish()
         } finally {
             sink.close()
         }
         onProgress(1f, tracker.snapshot())
         return Facts(rate, channels, tracker.snapshot())
+    }
+
+    /**
+     * Renders [lengthMs] from the trim start of one input to a WAV in [out], with [settings] applied, for a quick before/after
+     * listen. Nothing is added to the user's music.
+     */
+    suspend fun preview(input: ConvertInput, settings: AudioSettings, out: java.io.File, lengthMs: Long = 20_000): java.io.File = withContext(Dispatchers.IO) {
+        val start = settings.trimStartMs.coerceAtLeast(0)
+        val end = (if (settings.trimEndMs > 0) settings.trimEndMs else input.source.durationMs).coerceAtMost(start + (lengthMs * settings.speed).toLong())
+        val s = settings.copy(format = OutFormat.Wav, trimStartMs = start, trimEndMs = end, join = false)
+        this@AudioConverter.log = JobLog()
+        val outMs = AudioPlanner.outputMs(input.source, s)
+        ParcelFileDescriptor.open(out, ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE).use { fd ->
+            transcode(listOf(input), s, outMs, fd) { _, _ -> }
+        }
+        out
     }
 
     /** Where PCM goes to become a file. */

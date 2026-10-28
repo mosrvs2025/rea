@@ -7,12 +7,12 @@ import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Changes the speed of interleaved 16-bit PCM without changing its pitch (Sonic time-stretching). */
+/** Changes the speed and, separately, the pitch of interleaved 16-bit PCM (Sonic time-stretching). */
 @androidx.annotation.OptIn(UnstableApi::class)
-class Stretcher(rate: Int, channels: Int, speed: Float) {
+class Stretcher(rate: Int, channels: Int, speed: Float, pitch: Float = 1f) {
     private val sonic = SonicAudioProcessor().apply {
         setSpeed(speed)
-        setPitch(1f)
+        setPitch(pitch)
         configure(AudioProcessor.AudioFormat(rate, channels, C.ENCODING_PCM_16BIT))
         flush()
     }

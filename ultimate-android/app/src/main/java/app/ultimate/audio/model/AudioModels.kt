@@ -21,7 +21,20 @@ data class AudioSettings(
     val speed: Float = 1f,
     /** Several inputs become one file, in the order given, instead of one file each. */
     val join: Boolean = false,
-)
+    /** Pitch change in semitones, independent of speed. */
+    val pitch: Int = 0,
+    val bassDb: Float = 0f,
+    val trebleDb: Float = 0f,
+    /** Low-pass cutoff in Hz, or 0 for none. */
+    val highCutHz: Int = 0,
+    val fadeInMs: Long = 0,
+    val fadeOutMs: Long = 0,
+    /** Raise (or lower) the level so the loudest moment sits just under full scale. */
+    val normalize: Boolean = false,
+) {
+    /** Anything that changes the sound beyond format, speed and channels. */
+    val shaped: Boolean get() = pitch != 0 || bassDb != 0f || trebleDb != 0f || highCutHz != 0 || fadeInMs > 0 || fadeOutMs > 0 || normalize
+}
 
 /** What a video's audio track looks like. */
 data class AudioSource(
@@ -43,10 +56,17 @@ object AudioPlanner {
     val MP3_BITRATES = listOf(64, 96, 128, 192, 256, 320)
 
     val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+    val HIGH_CUTS = listOf(0 to "Off", 16_000 to "16 kHz", 12_000 to "12 kHz", 8_000 to "8 kHz")
+    val FADES = listOf(0L to "None", 1_000L to "1 s", 3_000L to "3 s", 5_000L to "5 s")
+    /** Peak level normalizing aims for: about -0.4 dBFS, leaving room for encoders to overshoot. */
+    const val NORMALIZE_PEAK = 31_200
+
+    /** Sonic's pitch factor for a change in semitones. */
+    fun pitchFactor(semitones: Int): Float = Math.pow(2.0, semitones / 12.0).toFloat()
 
     /** AAC frames can be copied unchanged only when nothing about the sound changes. */
     fun copies(src: AudioSource, s: AudioSettings): Boolean =
-        s.format == OutFormat.M4a && src.canCopy && s.speed == 1f && !s.mono && !s.join
+        s.format == OutFormat.M4a && src.canCopy && s.speed == 1f && !s.mono && !s.join && !s.shaped
 
     /** Milliseconds that will be kept after trimming. */
     fun keptMs(src: AudioSource, s: AudioSettings): Long {

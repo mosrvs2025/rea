@@ -59,6 +59,8 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -107,6 +109,7 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
     val picked by c.picked.collectAsStateWithLifecycle()
     val probing by c.probing.collectAsStateWithLifecycle()
     val settings by c.settings.collectAsStateWithLifecycle()
+    val preview by c.preview.collectAsStateWithLifecycle()
     val withConsent = rememberNotificationConsent()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { c.add(it) }
     val onPick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
@@ -125,7 +128,7 @@ fun AudioScreen(c: AudioController, onExit: () -> Unit, launch: ToolLaunch, tool
         queue.jobs.isNotEmpty() -> RunScreen(queue, c.log, onCancel = c::cancel, onDone = c::dismissResults)
         picked.isNotEmpty() || probing > 0 -> ConfigureScreen(
             picked, probing > 0, settings, onChange = c::update, onAdd = onPick, onAddAudio = onPickAudio, onRemove = c::remove, onMoveUp = c::moveUp,
-            onBack = c::clear, onStart = { withConsent { c.start() } },
+            preview = preview, onPreview = c::renderPreview, onBack = c::clear, onStart = { withConsent { c.start() } },
         )
         else -> HomeScreen(tool, onPick, onPickAudio, onExit)
     }
@@ -186,6 +189,8 @@ private fun ConfigureScreen(
     onAddAudio: () -> Unit,
     onRemove: (Uri) -> Unit,
     onMoveUp: (Uri) -> Unit,
+    preview: AudioController.Preview,
+    onPreview: () -> Unit,
     onBack: () -> Unit,
     onStart: () -> Unit,
 ) {
@@ -232,6 +237,8 @@ private fun ConfigureScreen(
             item { EstimateCard(total, if (joining) 1 else usable.size) }
             item { FormatSection(settings, anyCopyable, onChange) }
             item { SpeedSection(settings, onChange) }
+            item { SoundSection(settings, onChange) }
+            if (single) item { PreviewCard(preview, settings, onPreview) }
             if (single) item { TrimSection(usable[0].audio!!, settings, onChange) }
             if (usable.size > 1) item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,6 +331,67 @@ private fun SpeedSection(settings: AudioSettings, onChange: ((AudioSettings) -> 
                 "Pitch stays the same, so voices don't sound like chipmunks.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** Pitch, tone, fades and level. Plain editing controls; each one is off until changed. */
+@Composable
+private fun SoundSection(settings: AudioSettings, onChange: ((AudioSettings) -> AudioSettings) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Sound", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (settings.shaped) TextButton({ onChange { it.copy(pitch = 0, bassDb = 0f, trebleDb = 0f, highCutHz = 0, fadeInMs = 0, fadeOutMs = 0, normalize = false) } }) { Text("Reset") }
+            }
+            fun signed(v: Number, unit: String) = if (v.toFloat() == 0f) "0" else "${if (v.toFloat() > 0) "+" else ""}$v $unit"
+            Text("Pitch  ${signed(settings.pitch, "semitones")}", style = MaterialTheme.typography.bodyMedium)
+            Slider(settings.pitch.toFloat(), { v -> onChange { it.copy(pitch = v.roundToInt()) } }, valueRange = -6f..6f, steps = 11)
+            Text("Bass  ${signed(settings.bassDb.roundToInt(), "dB")}", style = MaterialTheme.typography.bodyMedium)
+            Slider(settings.bassDb, { v -> onChange { it.copy(bassDb = v.roundToInt().toFloat()) } }, valueRange = -12f..12f, steps = 23)
+            Text("Treble  ${signed(settings.trebleDb.roundToInt(), "dB")}", style = MaterialTheme.typography.bodyMedium)
+            Slider(settings.trebleDb, { v -> onChange { it.copy(trebleDb = v.roundToInt().toFloat()) } }, valueRange = -12f..12f, steps = 23)
+            Text("High cut", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AudioPlanner.HIGH_CUTS.forEach { (hz, label) ->
+                    FilterChip(selected = settings.highCutHz == hz, onClick = { onChange { it.copy(highCutHz = hz) } }, label = { Text(label) })
+                }
+            }
+            Text("Fade in", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AudioPlanner.FADES.forEach { (ms, label) -> FilterChip(selected = settings.fadeInMs == ms, onClick = { onChange { it.copy(fadeInMs = ms) } }, label = { Text(label) }) }
+            }
+            Text("Fade out", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AudioPlanner.FADES.forEach { (ms, label) -> FilterChip(selected = settings.fadeOutMs == ms, onClick = { onChange { it.copy(fadeOutMs = ms) } }, label = { Text(label) }) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Normalize", style = MaterialTheme.typography.bodyLarge)
+                    Text("Brings the loudest moment up (or down) to just under full scale.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(settings.normalize, { v -> onChange { it.copy(normalize = v) } })
+            }
+        }
+    }
+}
+
+/** Renders 20 seconds from the trim start both ways so the edit can be heard before saving. */
+@Composable
+private fun PreviewCard(preview: AudioController.Preview, settings: AudioSettings, onPreview: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("20 seconds from the start, original against edited.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (preview.rendering) CircularProgressIndicator(Modifier.size(24.dp))
+                else FilledTonalButton(onPreview, enabled = settings.shaped || settings.speed != 1f) { Text(if (preview.edited == null) "Listen" else "Refresh") }
+            }
+            preview.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            preview.original?.let { Text("Original", style = MaterialTheme.typography.labelLarge); AudioPlayerBar(it, emptyList()) }
+            preview.edited?.let { Text("Edited", style = MaterialTheme.typography.labelLarge); AudioPlayerBar(it, emptyList()) }
         }
     }
 }
