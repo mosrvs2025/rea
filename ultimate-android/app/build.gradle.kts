@@ -12,7 +12,7 @@ android {
         applicationId = "app.ultimate"
         minSdk = 29
         targetSdk = 35
-        versionCode = 20
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 20
         versionName = "1.19.0-companion.1"
     }
 

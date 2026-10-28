@@ -153,7 +153,8 @@ class SendServer(private val context: Context) {
                 if (range == null) return respond(out, 416, "text/plain", "Range not satisfiable".toByteArray())
                 context.contentResolver.openInputStream(f.uri)?.use { src ->
                     val partial = req.headers["range"] != null && f.bytes > 0
-                    val disposition = if (req.query["download"] == "1") "attachment" else "inline"
+                    val previewable = f.mime.startsWith("video/") || f.mime.startsWith("audio/") || (f.mime.startsWith("image/") && f.mime != "image/svg+xml")
+                    val disposition = if (req.query["download"] == "1" || !previewable) "attachment" else "inline"
                     val length = if (f.bytes > 0) range.last - range.first + 1 else -1
                     val head = "HTTP/1.1 ${if (partial) "206 Partial Content" else "200 OK"}\r\nContent-Type: ${f.mime}\r\n" +
                         (if (length >= 0) "Content-Length: $length\r\nAccept-Ranges: bytes\r\n" else "") +

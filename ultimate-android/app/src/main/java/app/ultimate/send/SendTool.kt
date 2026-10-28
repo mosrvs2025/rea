@@ -100,6 +100,7 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
     var front by remember { mutableStateOf(false) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) server.camera(true) }
     if (state.camera && state.running) CompanionCamera(server, front)
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { server.camera(false) }
     state.playRequest?.let { request ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = server::dismissPlay,

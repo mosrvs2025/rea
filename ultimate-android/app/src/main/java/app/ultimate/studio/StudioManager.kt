@@ -159,7 +159,18 @@ class StudioManager(private val context: Context, private val hub: WorkHub) : Wo
                 if (!committed) { log.warn("Export cancelled; incomplete output removed"); mutableWork.value = WorkSnapshot() }
                 throw e
             }
-            catch(e: Exception) { log.error(e.message ?: "Export failed"); error.value = "Export failed: ${e.message}"; mutableWork.value = WorkSnapshot() }
+            catch(e: Exception) {
+                log.error("${e.javaClass.simpleName}: ${e.message ?: "Export failed"}")
+                log.detail(e.stackTraceToString())
+                if (committed) {
+                    error.value = "Your video was saved to Movies/Ultimate Studio, but a follow-up step failed. See Details for the diagnostic log."
+                    log.warn("Output was already saved. Do not export again just to recover this file.")
+                } else {
+                    val cause = e.cause?.message ?: e.message ?: "Unknown error"
+                    error.value = "Export could not finish: $cause. Your project is kept; open Details and copy the log for diagnosis."
+                    mutableWork.value = WorkSnapshot()
+                }
+            }
         }
     }
     override fun cancelWork() { exportJob?.cancel() }
