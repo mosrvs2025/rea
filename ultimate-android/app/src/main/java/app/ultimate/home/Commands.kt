@@ -40,6 +40,8 @@ object Commands {
         listOf("mp3", "audio", "sound out", "music from", "ringtone", "podcast", "pitch", "bass", "wav", "m4a", "convert") to Action("audio", "Convert or edit audio", "Video to audio", "audio"),
         listOf("file", "folder", "browse", "download", "install", "apk file", "unzip", "move file", "rename") to Action("files", "Browse my files", "Files", "files"),
         listOf("clean", "duplicate", "free up", "cleanup", "wipe", "swipe", "declutter", "storage full", "old photos", "similar") to Action("cleanup", "Clean up my phone", "Clean up", "cleanup"),
+        listOf("notification", "unsent", "deleted message", "missed", "who messaged", "notif") to Action("inbox", "Find an old notification", "Notification history", "inbox"),
+        listOf("clipboard", "copied", "paste", "clip") to Action("clips", "Find something I copied", "Clipboard", "clips"),
         listOf("record", "voice", "memo", "dictate", "microphone") to Action("recorder", "Record something", "Recorder", "recorder"),
         listOf("photo", "picture", "image", "crop", "resize", "jpeg", "webp", "exif") to Action("photos", "Fix up photos", "Photos", "photos"),
         listOf("location", "gps", "metadata", "private", "anonymous") to Action("photos-clean", "Remove location from photos", "Photos · or Share clean from any app", "photos"),

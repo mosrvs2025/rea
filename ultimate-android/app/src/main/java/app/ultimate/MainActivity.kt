@@ -22,6 +22,12 @@ class MainActivity : ComponentActivity() {
         setContent { UltimateTheme { UltimateRoot(ultimate) } }
     }
 
+    // Android lets an app read the clipboard only while it has focus, so each return to Ultimate keeps whatever was copied.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && BuildConfig.HAS_CLIPS) ultimate.clips.captureNow("opened")
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleShare(intent)

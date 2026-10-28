@@ -13,8 +13,8 @@ android {
         minSdk = 29
         targetSdk = 35
         // CI companion builds supply their own increasing code; local builds stay above every companion default.
-        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 21
-        versionName = "1.19.0"
+        versionCode = System.getenv("COMPANION_VERSION_CODE")?.toIntOrNull() ?: 22
+        versionName = "1.20.0"
     }
 
     // One codebase, several apps. Each edition switches tools on with HAS_* flags; constants let R8 drop the others entirely.
@@ -42,6 +42,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "true")
             buildConfigField("boolean", "HAS_FILES", "true")
+            buildConfigField("boolean", "HAS_INBOX", "true")
+            buildConfigField("boolean", "HAS_CLIPS", "true")
         }
         // The full toolbox plus the traffic inspector. Needs the internet permission, so it is a separate app from the offline Ultimate.
         create("ultimateplus") {
@@ -64,6 +66,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "true")
             buildConfigField("boolean", "HAS_SCREENTIME", "true")
             buildConfigField("boolean", "HAS_FILES", "true")
+            buildConfigField("boolean", "HAS_INBOX", "true")
+            buildConfigField("boolean", "HAS_CLIPS", "true")
         }
         create("studio") {
             dimension = "edition"
@@ -85,6 +89,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
             buildConfigField("boolean", "HAS_FILES", "false")
+            buildConfigField("boolean", "HAS_INBOX", "false")
+            buildConfigField("boolean", "HAS_CLIPS", "false")
         }
         create("traffic") {
             dimension = "edition"
@@ -106,6 +112,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
             buildConfigField("boolean", "HAS_FILES", "false")
+            buildConfigField("boolean", "HAS_INBOX", "false")
+            buildConfigField("boolean", "HAS_CLIPS", "false")
         }
         create("squeeze") {
             dimension = "edition"
@@ -127,6 +135,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
             buildConfigField("boolean", "HAS_FILES", "false")
+            buildConfigField("boolean", "HAS_INBOX", "false")
+            buildConfigField("boolean", "HAS_CLIPS", "false")
         }
         create("audio") {
             dimension = "edition"
@@ -148,6 +158,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
             buildConfigField("boolean", "HAS_FILES", "false")
+            buildConfigField("boolean", "HAS_INBOX", "false")
+            buildConfigField("boolean", "HAS_CLIPS", "false")
         }
         create("pluck") {
             dimension = "edition"
@@ -169,6 +181,8 @@ android {
             buildConfigField("boolean", "HAS_SEND", "false")
             buildConfigField("boolean", "HAS_SCREENTIME", "false")
             buildConfigField("boolean", "HAS_FILES", "false")
+            buildConfigField("boolean", "HAS_INBOX", "false")
+            buildConfigField("boolean", "HAS_CLIPS", "false")
         }
     }
 

@@ -60,6 +60,8 @@ class UltimateApp : Application() {
     val photos by lazy { app.ultimate.photos.PhotoManager(this, work) }
     val automations by lazy { app.ultimate.recipes.Automations(this) }
     val recipes by lazy { app.ultimate.recipes.RecipeRunner(this) }
+    val notificationLog by lazy { app.ultimate.inbox.NotificationLog(this) }
+    val clips by lazy { app.ultimate.clips.ClipStore(this) }
     val sendServer by lazy { app.ultimate.send.SendServer(this) }
     val transcripts by lazy { app.ultimate.speech.TranscriptStore(this) }
     val prompter by lazy { app.ultimate.prompter.PrompterStore(this) }
@@ -80,6 +82,8 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_NETWORK) add(app.ultimate.lan.LanTool(lanManager))
             if (BuildConfig.HAS_SEND) add(app.ultimate.send.SendTool(sendServer))
             if (BuildConfig.HAS_FILES) add(app.ultimate.files.FilesTool(this@UltimateApp))
+            if (BuildConfig.HAS_INBOX) add(app.ultimate.inbox.InboxTool(this@UltimateApp))
+            if (BuildConfig.HAS_CLIPS) add(app.ultimate.clips.ClipsTool(clips))
             if (BuildConfig.HAS_FILES) add(app.ultimate.files.CleanupTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
