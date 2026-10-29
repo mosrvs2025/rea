@@ -153,7 +153,7 @@ fun TodayDashboard(app: UltimateApp) {
                 item("battery") {
                     Glance(Modifier.appear("g-bat", seen, 0), if (f.charging) Icons.Rounded.BatteryChargingFull else Icons.Rounded.BatteryStd, "Phone",
                         (f.battery?.let { "$it%" } ?: "–"), "${formatBytes(f.free)} free", ring = f.battery?.let { it / 100f },
-                        onClick = { if ("cleanup" in ids) open("cleanup") })
+                        onClick = { if ("storage" in ids) open("storage") else if ("cleanup" in ids) open("cleanup") })
                 }
                 if ("screentime" in ids) item("screen") {
                     Glance(Modifier.appear("g-st", seen, 1), Icons.Rounded.HourglassBottom, "Screen today", f.screenMsToday?.let { UsageMath.hm(it) } ?: "Set up", if (f.screenMsToday == null) "Tap to allow" else "across your apps") { open("screentime") }

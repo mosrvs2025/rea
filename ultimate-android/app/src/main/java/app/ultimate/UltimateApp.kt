@@ -85,6 +85,7 @@ class UltimateApp : Application() {
             if (BuildConfig.HAS_INBOX) add(app.ultimate.inbox.InboxTool(this@UltimateApp))
             if (BuildConfig.HAS_CLIPS) add(app.ultimate.clips.ClipsTool(clips))
             if (BuildConfig.HAS_FILES) add(app.ultimate.files.CleanupTool(this@UltimateApp))
+            if (BuildConfig.HAS_FILES) add(app.ultimate.storage.StorageTool(this@UltimateApp))
             if (BuildConfig.HAS_SCREENTIME) add(app.ultimate.screentime.ScreenTimeTool(this@UltimateApp))
             if (BuildConfig.HAS_SENSORS) add(app.ultimate.sensors.SensorsTool((getSystemService(SENSOR_SERVICE) as android.hardware.SensorManager).getSensorList(android.hardware.Sensor.TYPE_ALL).size))
         }

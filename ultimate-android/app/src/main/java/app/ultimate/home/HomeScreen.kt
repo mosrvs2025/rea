@@ -97,7 +97,7 @@ fun HomeScreen(app: UltimateApp, pad: PaddingValues) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(Modifier.padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Ultimate", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Hero(saved, all.size) { app.insights.count("home.savings"); showSavings = true }
+                Hero(saved, all.size) { app.insights.count("home.savings"); app.tools.firstOrNull { it.id == "storage" }?.let { app.shell.open(it) } ?: run { showSavings = true } }
             }
         }
         item(span = { GridItemSpan(maxLineSpan) }) { AskBar(app) }
@@ -253,7 +253,7 @@ private fun ShapeCard(onClick: () -> Unit) {
 internal fun toolSections(tools: List<app.ultimate.core.Tool>): List<Pair<String, List<app.ultimate.core.Tool>>> {
     val families = linkedMapOf(
         "Create" to listOf("studio", "squeeze", "audio", "recorder", "photos", "prompter"),
-        "Phone" to listOf("files", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
+        "Phone" to listOf("files", "storage", "cleanup", "inbox", "clips", "checkup", "pluck", "sensors", "sound-meter"),
         "Network" to listOf("traffic", "lan", "send"),
         "Smart" to listOf("recipes", "screentime"),
     )
