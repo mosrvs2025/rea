@@ -91,6 +91,17 @@ class SendApi(private val context: Context, private val server: SendServer) {
         fun deny(why: String) = server.respond(out, 403, "application/json", JSONObject().put("error", why).toString().toByteArray())
         when {
             req.method == "GET" && path == "/phone" -> json(phone())
+            req.method == "POST" && path == "/screen" -> {
+                val n = req.headers["content-length"]?.toIntOrNull()?.takeIf { it in 1..4_000_000 } ?: return deny("bad frame")
+                val buf = ByteArray(n); var read = 0
+                while (read < n) { val r = input.read(buf, read, n - read); if (r < 0) break; read += r }
+                server.actions.frame(buf, SendHttp.browserLabel(req.headers["user-agent"]))
+                json(JSONObject().put("ok", true))
+            }
+            req.method == "POST" && path == "/screen/stop" -> { server.actions.stopScreen(); json(JSONObject().put("ok", true)) }
+            req.method == "POST" && path == "/open" -> { val url = body(req, input, 4000)?.trim().orEmpty(); if (url.isEmpty()) return deny("empty"); server.actions.openLink(url); app.insights.count("remote.open"); json(JSONObject().put("ok", true)) }
+            req.method == "POST" && path == "/ring" -> { server.actions.ring(); app.insights.count("remote.ring"); json(JSONObject().put("ok", true)) }
+            req.method == "POST" && path == "/ring/stop" -> { server.actions.stopRing(); json(JSONObject().put("ok", true)) }
             req.method == "GET" && path == "/tools" -> json(JSONArray(app.tools.map { it.id }))
             req.method == "GET" && path == "/runs" -> json(JSONArray().apply { runs.forEach { r ->
                 put(JSONObject().put("id", r.id).put("tool", r.tool).put("name", r.name).put("state", r.state).put("line", r.line).put("at", r.startedAt).put("file", r.output != null))

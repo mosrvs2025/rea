@@ -58,6 +58,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.ultimate.core.LibraryItem
 import app.ultimate.core.ShellActions
@@ -169,6 +174,8 @@ private fun SendScreen(server: SendServer, onExit: () -> Unit, launch: ToolLaunc
                     }
                 }
             }
+            item { ComputerScreen(server) }
+            if (state.running) item { SecureCard(server, state.secureAddress) }
             item { SharingOptions(server) }
             item {
                 if (state.running) Card {
@@ -248,5 +255,53 @@ fun QrCode(text: String, modifier: Modifier) {
     androidx.compose.foundation.Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color.White).padding(6.dp)) {
         val cell = size.minDimension / matrix.width
         for (y in 0 until matrix.height) for (x in 0 until matrix.width) if (matrix[x, y]) drawRect(Color.Black, androidx.compose.ui.geometry.Offset(x * cell, y * cell), androidx.compose.ui.geometry.Size(cell + 0.5f, cell + 0.5f))
+    }
+}
+
+/** The computer's screen or camera, live; tap for full screen with pinch to zoom. */
+@Composable
+private fun ComputerScreen(server: SendServer) {
+    val shot by server.actions.screen.collectAsStateWithLifecycle()
+    var full by remember { mutableStateOf(false) }
+    val s = shot ?: run { full = false; return }
+    val bitmap = remember(s.at) { android.graphics.BitmapFactory.decodeByteArray(s.frame, 0, s.frame.size)?.asImageBitmap() }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFE53935))); Spacer(Modifier.width(8.dp))
+                Text("${s.from} is sharing", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                TextButton({ full = true }) { Text("Full screen") }
+            }
+            bitmap?.let { androidx.compose.foundation.Image(it, "Computer screen", Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { full = true }, contentScale = androidx.compose.ui.layout.ContentScale.FillWidth) }
+        }
+    }
+    if (full && bitmap != null) androidx.compose.ui.window.Dialog({ full = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+        Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+            detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 6f); offset = if (scale == 1f) androidx.compose.ui.geometry.Offset.Zero else offset + pan }
+        }) {
+            androidx.compose.foundation.Image(bitmap, "Computer screen", Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y }, contentScale = androidx.compose.ui.layout.ContentScale.Fit)
+            TextButton({ full = false }, Modifier.align(Alignment.TopEnd).padding(16.dp)) { Text("Close", color = Color.White) }
+        }
+    }
+}
+
+/** Secure mode: the https address for screen sharing and desktop notifications, and the certificate to expect. */
+@Composable
+private fun SecureCard(server: SendServer, secure: String?) {
+    val context = LocalContext.current
+    val ringing = server.actions.ringing
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Secure mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (secure == null) Text("Starting…", style = MaterialTheme.typography.bodySmall)
+            else {
+                Text(secure.removePrefix("https://"), Modifier.clickable { copyText(context, "Secure address", secure) }, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+                Text("Lets your computer share its screen and camera to this phone and show phone notifications on the desktop. The browser warns once because the phone made its own certificate: choose Advanced, then Proceed.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                server.secureFingerprint()?.let { Text("Certificate starts $it", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.outline) }
+            }
+            if (ringing) TextButton(server.actions::stopRing) { Text("Stop ringing") }
+        }
     }
 }

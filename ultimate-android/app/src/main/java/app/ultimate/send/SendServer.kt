@@ -83,7 +83,7 @@ object SendHttp {
  * needs the random code in its address.
  */
 class SendServer(private val context: Context) {
-    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null, val mic: Boolean = false)
+    data class State(val running: Boolean = false, val address: String? = null, val offered: List<Offered> = emptyList(), val received: List<Received> = emptyList(), val error: String? = null, val camera: Boolean = false, val playRequest: Received? = null, val mic: Boolean = false, val secureAddress: String? = null)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
@@ -93,6 +93,7 @@ class SendServer(private val context: Context) {
     /** The part of the address after the port. It stays the same between sessions so a bookmark keeps working. */
     private var code = prefs.getString("code", null) ?: SendHttp.newCode().also { prefs.edit().putString("code", it).apply() }
     val api = SendApi(context, this)
+    val actions = PhoneActions(context)
     /** Computers seen in the last minute, by browser, so the phone can show who is connected. */
     data class Visitor(val label: String, val address: String, val lastSeen: Long)
     private val _visitors = MutableStateFlow<List<Visitor>>(emptyList())
@@ -121,13 +122,21 @@ class SendServer(private val context: Context) {
     private fun status(): String {
         val app = context.applicationContext as app.ultimate.UltimateApp
         return org.json.JSONObject().apply {
-            put("device", android.os.Build.MODEL); put("camera", _state.value.camera); put("mic", _state.value.mic); put("micLevel", micStream.level.toDouble())
+            put("device", android.os.Build.MODEL); put("secureAddress", _state.value.secureAddress ?: ""); put("camera", _state.value.camera); put("mic", _state.value.mic); put("micLevel", micStream.level.toDouble())
             put("files", org.json.JSONArray().apply { _state.value.offered.forEach { f -> put(org.json.JSONObject().put("id", f.id).put("name", f.name).put("bytes", f.bytes).put("mime", f.mime)) } })
             put("jobs", org.json.JSONArray().apply { app.work.sources.forEach { source -> val w = source.work.value
                 put(org.json.JSONObject().put("name", source.workTitle).put("active", w.active).put("title", if (w.active) w.title else w.doneTitle ?: "Ready").put("percent", w.percent ?: -1))
             } })
         }.toString()
     }
+
+    private var secureSocket: ServerSocket? = null
+    private val secure by lazy {
+        val pw = prefs.getString("tlsPassword", null) ?: SendHttp.newCode().repeat(3).also { prefs.edit().putString("tlsPassword", it).apply() }
+        SecureSocket(java.io.File(context.filesDir, "tls"), pw.toCharArray())
+    }
+    /** First 8 bytes of the https certificate's fingerprint, to compare with what the browser shows. */
+    fun secureFingerprint() = secure.fingerprint()
 
     fun start() {
         if (_state.value.running) return
@@ -138,21 +147,30 @@ class SendServer(private val context: Context) {
         _state.update { it.copy(running = true, address = "http://$ip:${server.localPort}/$code", error = null) }
         lastVisit = System.currentTimeMillis()
         if (prefs.getBoolean("background", true)) runCatching { androidx.core.content.ContextCompat.startForegroundService(context, android.content.Intent(context, SendService::class.java)) }
+        s.launch { serve(server) }
+        // The same pages over https, for what browsers only allow on secure pages: screen sharing and desktop notifications.
         s.launch {
-            while (isActive) {
-                val client = runCatching { server.accept() }.getOrNull() ?: break
-                clients.add(client)
-                launch { try { runCatching { client.use { handle(it) } } } finally { clients.remove(client) } }
-            }
+            val tls = runCatching { secure.open(ip, SECURE_PORT) }.recoverCatching { secure.open(ip, 0) }.getOrNull() ?: return@launch
+            secureSocket = tls
+            _state.update { it.copy(secureAddress = "https://$ip:${tls.localPort}/$code") }
+            serve(tls)
+        }
+    }
+
+    private suspend fun serve(server: ServerSocket) = kotlinx.coroutines.coroutineScope {
+        while (isActive) {
+            val client = runCatching { server.accept() }.getOrNull() ?: break
+            clients.add(client)
+            launch { try { runCatching { client.use { handle(it) } } } finally { clients.remove(client) } }
         }
     }
 
     fun stop() {
-        runCatching { socket?.close() }
+        runCatching { socket?.close() }; runCatching { secureSocket?.close() }; secureSocket = null
         clients.forEach { runCatching { it.close() } }; clients.clear()
-        camera(false); mic(false)
+        camera(false); mic(false); actions.stopScreen()
         scope?.cancel(); scope = null; socket = null
-        _state.update { it.copy(running = false, address = null) }
+        _state.update { it.copy(running = false, address = null, secureAddress = null) }
         _visitors.value = emptyList()
         runCatching { context.stopService(android.content.Intent(context, SendService::class.java)) }
     }
@@ -162,7 +180,7 @@ class SendServer(private val context: Context) {
         val name = raw?.let { SendHttp.cleanCode(it) ?: return null } ?: SendHttp.newCode()
         code = name
         prefs.edit().putString("code", name).remove("tokens").apply()
-        if (_state.value.running) _state.update { it.copy(address = it.address?.substringBeforeLast('/') + "/" + name) }
+        if (_state.value.running) _state.update { it.copy(address = it.address?.substringBeforeLast('/') + "/" + name, secureAddress = it.secureAddress?.let { a -> a.substringBeforeLast('/') + "/" + name }) }
         return name
     }
     val codeName get() = code
@@ -319,5 +337,5 @@ class SendServer(private val context: Context) {
             .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }?.hostAddress
     }.getOrNull()
 
-    companion object { const val PORT = 8686 }
+    companion object { const val PORT = 8686; const val SECURE_PORT = 8687 }
 }

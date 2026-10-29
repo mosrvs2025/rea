@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun handleShare(intent: Intent?) {
+        if (intent?.getBooleanExtra(app.ultimate.send.PhoneActions.EXTRA_STOP_RING, false) == true && BuildConfig.HAS_SEND) { ultimate.sendServer.actions.stopRing(); return }
         // A finished-work notification names its tool, so tapping it lands there instead of on Home.
         intent?.getStringExtra(EXTRA_TOOL)?.let { id ->
             val files = (if (Build.VERSION.SDK_INT >= 33) intent.getParcelableArrayListExtra(EXTRA_FILES, Uri::class.java) else intent.getParcelableArrayListExtra<Uri>(EXTRA_FILES)).orEmpty()
