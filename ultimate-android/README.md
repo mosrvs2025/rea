@@ -1,3 +1,5 @@
+> **Ultimate development has moved:** [mosrvs2025/ultimate-android](https://github.com/mosrvs2025/ultimate-android), branch `main`. Continue app work there. This directory is a historical copy. Read [CLAUDE.md](CLAUDE.md) before making changes.
+
 # Ultimate
 
 One Android app that holds a growing set of small, offline tools. No ads, no analytics, no accounts. The manifest has no `INTERNET` permission, so the app cannot reach the network.
